@@ -15690,8 +15690,10 @@ type Query {
     documentByPath(path: String): Document
 }
  `;
+    const bodyJSON = JSON.parse(body);
+    console.log(bodyJSON);
 
-    if (!body.query) {
+    if (!bodyJSON.query) {
       const response = {
         statusCode: 400,
         body: JSON.stringify('No query specified')
@@ -15701,10 +15703,10 @@ type Query {
       if (!gqlSchema) {
         console.log('Init Schema');
         gqlSchema = buildSchema(gqlSDL);
-      }
+      } // const bodyJSON = JSON.parse(body)
+      // console.log(bodyJSON)
 
-      const bodyJSON = JSON.parse(body);
-      console.log(bodyJSON);
+
       const {
         query,
         variables
