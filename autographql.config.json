@@ -7,6 +7,10 @@
         {
             "name": "netlify",
             "dist": "./dist/graphql"
+        },
+        {
+            "name": "gcp",
+            "dist": "./dist/gcp"
         }
     ],
     "dev": {

@@ -1236,6 +1236,10 @@ function defineInputFieldMap(config) {
   });
 }
 
+function isRequiredInputField(field) {
+  return isNonNullType(field.type) && field.defaultValue === undefined;
+}
+
 /**
  * Copyright (c) 2018-present, Facebook, Inc.
  *
@@ -4153,6 +4157,43 @@ function isTypeSubTypeOf(schema, maybeSubType, superType) {
   if (isAbstractType(superType) && isObjectType(maybeSubType) && schema.isPossibleType(superType, maybeSubType)) {
     return true;
   } // Otherwise, the child type is not a valid subtype of the parent type.
+
+
+  return false;
+}
+/**
+ * Provided two composite types, determine if they "overlap". Two composite
+ * types overlap when the Sets of possible concrete types for each intersect.
+ *
+ * This is often used to determine if a fragment of a given type could possibly
+ * be visited in a context of another type.
+ *
+ * This function is commutative.
+ */
+
+function doTypesOverlap(schema, typeA, typeB) {
+  // Equivalent types overlap
+  if (typeA === typeB) {
+    return true;
+  }
+
+  if (isAbstractType(typeA)) {
+    if (isAbstractType(typeB)) {
+      // If both types are abstract, then determine if there is any intersection
+      // between possible concrete types of each.
+      return schema.getPossibleTypes(typeA).some(function (type) {
+        return schema.isPossibleType(typeB, type);
+      });
+    } // Determine if the latter type is a possible concrete type of the former.
+
+
+    return schema.isPossibleType(typeA, typeB);
+  }
+
+  if (isAbstractType(typeB)) {
+    // Determine if the former type is a possible concrete type of the latter.
+    return schema.isPossibleType(typeB, typeA);
+  } // Otherwise the types do not overlap.
 
 
   return false;
@@ -7532,6 +7573,9 @@ function getFieldDef(schema, parentType, fieldNode) {
  *
  * 
  */
+function isExecutableDefinitionNode(node) {
+  return node.kind === Kind.OPERATION_DEFINITION || node.kind === Kind.FRAGMENT_DEFINITION;
+}
 function isTypeSystemDefinitionNode(node) {
   return node.kind === Kind.SCHEMA_DEFINITION || isTypeDefinitionNode(node) || node.kind === Kind.DIRECTIVE_DEFINITION;
 }
@@ -7553,6 +7597,50 @@ function isTypeExtensionNode(node) {
  *
  * 
  */
+function nonExecutableDefinitionMessage(defName) {
+  return "The ".concat(defName, " definition is not executable.");
+}
+/**
+ * Executable definitions
+ *
+ * A GraphQL document is only valid for execution if all definitions are either
+ * operation or fragment definitions.
+ */
+
+function ExecutableDefinitions(context) {
+  return {
+    Document: function Document(node) {
+      var _iteratorNormalCompletion = true;
+      var _didIteratorError = false;
+      var _iteratorError = undefined;
+
+      try {
+        for (var _iterator = node.definitions[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+          var definition = _step.value;
+
+          if (!isExecutableDefinitionNode(definition)) {
+            context.reportError(new GraphQLError(nonExecutableDefinitionMessage(definition.kind === Kind.SCHEMA_DEFINITION || definition.kind === Kind.SCHEMA_EXTENSION ? 'schema' : definition.name.value), [definition]));
+          }
+        }
+      } catch (err) {
+        _didIteratorError = true;
+        _iteratorError = err;
+      } finally {
+        try {
+          if (!_iteratorNormalCompletion && _iterator.return != null) {
+            _iterator.return();
+          }
+        } finally {
+          if (_didIteratorError) {
+            throw _iteratorError;
+          }
+        }
+      }
+
+      return false;
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7562,6 +7650,36 @@ function isTypeExtensionNode(node) {
  *
  * 
  */
+function duplicateOperationNameMessage(operationName) {
+  return "There can be only one operation named \"".concat(operationName, "\".");
+}
+/**
+ * Unique operation names
+ *
+ * A GraphQL document is only valid if all defined operations have unique names.
+ */
+
+function UniqueOperationNames(context) {
+  var knownOperationNames = Object.create(null);
+  return {
+    OperationDefinition: function OperationDefinition(node) {
+      var operationName = node.name;
+
+      if (operationName) {
+        if (knownOperationNames[operationName.value]) {
+          context.reportError(new GraphQLError(duplicateOperationNameMessage(operationName.value), [knownOperationNames[operationName.value], operationName]));
+        } else {
+          knownOperationNames[operationName.value] = operationName;
+        }
+      }
+
+      return false;
+    },
+    FragmentDefinition: function FragmentDefinition() {
+      return false;
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7571,6 +7689,31 @@ function isTypeExtensionNode(node) {
  *
  * 
  */
+function anonOperationNotAloneMessage() {
+  return 'This anonymous operation must be the only defined operation.';
+}
+/**
+ * Lone anonymous operation
+ *
+ * A GraphQL document is only valid if when it contains an anonymous operation
+ * (the query short-hand) that it contains only that one operation definition.
+ */
+
+function LoneAnonymousOperation(context) {
+  var operationCount = 0;
+  return {
+    Document: function Document(node) {
+      operationCount = node.definitions.filter(function (definition) {
+        return definition.kind === Kind.OPERATION_DEFINITION;
+      }).length;
+    },
+    OperationDefinition: function OperationDefinition(node) {
+      if (!node.name && operationCount > 1) {
+        context.reportError(new GraphQLError(anonOperationNotAloneMessage(), [node]));
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7580,6 +7723,26 @@ function isTypeExtensionNode(node) {
  *
  * 
  */
+function singleFieldOnlyMessage(name) {
+  return (name ? "Subscription \"".concat(name, "\" ") : 'Anonymous Subscription ') + 'must select only one top level field.';
+}
+/**
+ * Subscriptions must only include one field.
+ *
+ * A GraphQL subscription is valid only if it contains a single root field.
+ */
+
+function SingleFieldSubscriptions(context) {
+  return {
+    OperationDefinition: function OperationDefinition(node) {
+      if (node.operation === 'subscription') {
+        if (node.selectionSet.selections.length !== 1) {
+          context.reportError(new GraphQLError(singleFieldOnlyMessage(node.name && node.name.value), node.selectionSet.selections.slice(1)));
+        }
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7811,6 +7974,42 @@ function isSDLNode(value) {
  *
  * 
  */
+function inlineFragmentOnNonCompositeErrorMessage(type) {
+  return "Fragment cannot condition on non composite type \"".concat(type, "\".");
+}
+function fragmentOnNonCompositeErrorMessage(fragName, type) {
+  return "Fragment \"".concat(fragName, "\" cannot condition on non composite ") + "type \"".concat(type, "\".");
+}
+/**
+ * Fragments on composite type
+ *
+ * Fragments use a type condition to determine if they apply, since fragments
+ * can only be spread into a composite type (object, interface, or union), the
+ * type condition must also be a composite type.
+ */
+
+function FragmentsOnCompositeTypes(context) {
+  return {
+    InlineFragment: function InlineFragment(node) {
+      var typeCondition = node.typeCondition;
+
+      if (typeCondition) {
+        var type = typeFromAST(context.getSchema(), typeCondition);
+
+        if (type && !isCompositeType(type)) {
+          context.reportError(new GraphQLError(inlineFragmentOnNonCompositeErrorMessage(print(typeCondition)), [typeCondition]));
+        }
+      }
+    },
+    FragmentDefinition: function FragmentDefinition(node) {
+      var type = typeFromAST(context.getSchema(), node.typeCondition);
+
+      if (type && !isCompositeType(type)) {
+        context.reportError(new GraphQLError(fragmentOnNonCompositeErrorMessage(node.name.value, print(node.typeCondition)), [node.typeCondition]));
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7820,6 +8019,28 @@ function isSDLNode(value) {
  *
  * 
  */
+function nonInputTypeOnVarMessage(variableName, typeName) {
+  return "Variable \"$".concat(variableName, "\" cannot be non-input type \"").concat(typeName, "\".");
+}
+/**
+ * Variables are input types
+ *
+ * A GraphQL operation is only valid if all the variables it defines are of
+ * input types (scalar, enum, or input object).
+ */
+
+function VariablesAreInputTypes(context) {
+  return {
+    VariableDefinition: function VariableDefinition(node) {
+      var type = typeFromAST(context.getSchema(), node.type); // If the variable type is not an input type, return an error.
+
+      if (type && !isInputType(type)) {
+        var variableName = node.variable.name.value;
+        context.reportError(new GraphQLError(nonInputTypeOnVarMessage(variableName, print(node.type)), [node.type]));
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7829,6 +8050,37 @@ function isSDLNode(value) {
  *
  * 
  */
+function noSubselectionAllowedMessage(fieldName, type) {
+  return "Field \"".concat(fieldName, "\" must not have a selection since ") + "type \"".concat(type, "\" has no subfields.");
+}
+function requiredSubselectionMessage(fieldName, type) {
+  return "Field \"".concat(fieldName, "\" of type \"").concat(type, "\" must have a ") + "selection of subfields. Did you mean \"".concat(fieldName, " { ... }\"?");
+}
+/**
+ * Scalar leafs
+ *
+ * A GraphQL document is valid only if all leaf fields (fields without
+ * sub selections) are of scalar or enum types.
+ */
+
+function ScalarLeafs(context) {
+  return {
+    Field: function Field(node) {
+      var type = context.getType();
+      var selectionSet = node.selectionSet;
+
+      if (type) {
+        if (isLeafType(getNamedType(type))) {
+          if (selectionSet) {
+            context.reportError(new GraphQLError(noSubselectionAllowedMessage(node.name.value, inspect(type)), [selectionSet]));
+          }
+        } else if (!selectionSet) {
+          context.reportError(new GraphQLError(requiredSubselectionMessage(node.name.value, inspect(type)), [node]));
+        }
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7838,6 +8090,143 @@ function isSDLNode(value) {
  *
  * 
  */
+function undefinedFieldMessage(fieldName, type, suggestedTypeNames, suggestedFieldNames) {
+  var message = "Cannot query field \"".concat(fieldName, "\" on type \"").concat(type, "\".");
+
+  if (suggestedTypeNames.length !== 0) {
+    var suggestions = quotedOrList(suggestedTypeNames);
+    message += " Did you mean to use an inline fragment on ".concat(suggestions, "?");
+  } else if (suggestedFieldNames.length !== 0) {
+    message += " Did you mean ".concat(quotedOrList(suggestedFieldNames), "?");
+  }
+
+  return message;
+}
+/**
+ * Fields on correct type
+ *
+ * A GraphQL document is only valid if all fields selected are defined by the
+ * parent type, or are an allowed meta field such as __typename.
+ */
+
+function FieldsOnCorrectType(context) {
+  return {
+    Field: function Field(node) {
+      var type = context.getParentType();
+
+      if (type) {
+        var fieldDef = context.getFieldDef();
+
+        if (!fieldDef) {
+          // This field doesn't exist, lets look for suggestions.
+          var schema = context.getSchema();
+          var fieldName = node.name.value; // First determine if there are any suggested types to condition on.
+
+          var suggestedTypeNames = getSuggestedTypeNames(schema, type, fieldName); // If there are no suggested types, then perhaps this was a typo?
+
+          var suggestedFieldNames = suggestedTypeNames.length !== 0 ? [] : getSuggestedFieldNames(schema, type, fieldName); // Report an error, including helpful suggestions.
+
+          context.reportError(new GraphQLError(undefinedFieldMessage(fieldName, type.name, suggestedTypeNames, suggestedFieldNames), [node]));
+        }
+      }
+    }
+  };
+}
+/**
+ * Go through all of the implementations of type, as well as the interfaces that
+ * they implement. If any of those types include the provided field, suggest
+ * them, sorted by how often the type is referenced, starting with Interfaces.
+ */
+
+function getSuggestedTypeNames(schema, type, fieldName) {
+  if (isAbstractType(type)) {
+    var suggestedObjectTypes = [];
+    var interfaceUsageCount = Object.create(null);
+    var _iteratorNormalCompletion = true;
+    var _didIteratorError = false;
+    var _iteratorError = undefined;
+
+    try {
+      for (var _iterator = schema.getPossibleTypes(type)[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+        var possibleType = _step.value;
+
+        if (!possibleType.getFields()[fieldName]) {
+          continue;
+        } // This object type defines this field.
+
+
+        suggestedObjectTypes.push(possibleType.name);
+        var _iteratorNormalCompletion2 = true;
+        var _didIteratorError2 = false;
+        var _iteratorError2 = undefined;
+
+        try {
+          for (var _iterator2 = possibleType.getInterfaces()[Symbol.iterator](), _step2; !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
+            var possibleInterface = _step2.value;
+
+            if (!possibleInterface.getFields()[fieldName]) {
+              continue;
+            } // This interface type defines this field.
+
+
+            interfaceUsageCount[possibleInterface.name] = (interfaceUsageCount[possibleInterface.name] || 0) + 1;
+          }
+        } catch (err) {
+          _didIteratorError2 = true;
+          _iteratorError2 = err;
+        } finally {
+          try {
+            if (!_iteratorNormalCompletion2 && _iterator2.return != null) {
+              _iterator2.return();
+            }
+          } finally {
+            if (_didIteratorError2) {
+              throw _iteratorError2;
+            }
+          }
+        }
+      } // Suggest interface types based on how common they are.
+
+    } catch (err) {
+      _didIteratorError = true;
+      _iteratorError = err;
+    } finally {
+      try {
+        if (!_iteratorNormalCompletion && _iterator.return != null) {
+          _iterator.return();
+        }
+      } finally {
+        if (_didIteratorError) {
+          throw _iteratorError;
+        }
+      }
+    }
+
+    var suggestedInterfaceTypes = Object.keys(interfaceUsageCount).sort(function (a, b) {
+      return interfaceUsageCount[b] - interfaceUsageCount[a];
+    }); // Suggest both interface and object types.
+
+    return suggestedInterfaceTypes.concat(suggestedObjectTypes);
+  } // Otherwise, must be an Object type, which does not have possible fields.
+
+
+  return [];
+}
+/**
+ * For the field name provided, determine if there are any similar field names
+ * that may be the result of a typo.
+ */
+
+
+function getSuggestedFieldNames(schema, type, fieldName) {
+  if (isObjectType(type) || isInterfaceType(type)) {
+    var possibleFieldNames = Object.keys(type.getFields());
+    return suggestionList(fieldName, possibleFieldNames);
+  } // Otherwise, must be a Union type, which does not define fields.
+
+
+  return [];
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7847,6 +8236,34 @@ function isSDLNode(value) {
  *
  * 
  */
+function duplicateFragmentNameMessage(fragName) {
+  return "There can be only one fragment named \"".concat(fragName, "\".");
+}
+/**
+ * Unique fragment names
+ *
+ * A GraphQL document is only valid if all defined fragments have unique names.
+ */
+
+function UniqueFragmentNames(context) {
+  var knownFragmentNames = Object.create(null);
+  return {
+    OperationDefinition: function OperationDefinition() {
+      return false;
+    },
+    FragmentDefinition: function FragmentDefinition(node) {
+      var fragmentName = node.name.value;
+
+      if (knownFragmentNames[fragmentName]) {
+        context.reportError(new GraphQLError(duplicateFragmentNameMessage(fragmentName), [knownFragmentNames[fragmentName], node.name]));
+      } else {
+        knownFragmentNames[fragmentName] = node.name;
+      }
+
+      return false;
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7856,6 +8273,28 @@ function isSDLNode(value) {
  *
  * 
  */
+function unknownFragmentMessage(fragName) {
+  return "Unknown fragment \"".concat(fragName, "\".");
+}
+/**
+ * Known fragment names
+ *
+ * A GraphQL document is only valid if all `...Fragment` fragment spreads refer
+ * to fragments defined in the same document.
+ */
+
+function KnownFragmentNames(context) {
+  return {
+    FragmentSpread: function FragmentSpread(node) {
+      var fragmentName = node.name.value;
+      var fragment = context.getFragment(fragmentName);
+
+      if (!fragment) {
+        context.reportError(new GraphQLError(unknownFragmentMessage(fragmentName), [node.name]));
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7865,6 +8304,71 @@ function isSDLNode(value) {
  *
  * 
  */
+function unusedFragMessage(fragName) {
+  return "Fragment \"".concat(fragName, "\" is never used.");
+}
+/**
+ * No unused fragments
+ *
+ * A GraphQL document is only valid if all fragment definitions are spread
+ * within operations, or spread within other fragments spread within operations.
+ */
+
+function NoUnusedFragments(context) {
+  var operationDefs = [];
+  var fragmentDefs = [];
+  return {
+    OperationDefinition: function OperationDefinition(node) {
+      operationDefs.push(node);
+      return false;
+    },
+    FragmentDefinition: function FragmentDefinition(node) {
+      fragmentDefs.push(node);
+      return false;
+    },
+    Document: {
+      leave: function leave() {
+        var fragmentNameUsed = Object.create(null);
+
+        for (var _i = 0; _i < operationDefs.length; _i++) {
+          var operation = operationDefs[_i];
+          var _iteratorNormalCompletion = true;
+          var _didIteratorError = false;
+          var _iteratorError = undefined;
+
+          try {
+            for (var _iterator = context.getRecursivelyReferencedFragments(operation)[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+              var fragment = _step.value;
+              fragmentNameUsed[fragment.name.value] = true;
+            }
+          } catch (err) {
+            _didIteratorError = true;
+            _iteratorError = err;
+          } finally {
+            try {
+              if (!_iteratorNormalCompletion && _iterator.return != null) {
+                _iterator.return();
+              }
+            } finally {
+              if (_didIteratorError) {
+                throw _iteratorError;
+              }
+            }
+          }
+        }
+
+        for (var _i2 = 0; _i2 < fragmentDefs.length; _i2++) {
+          var fragmentDef = fragmentDefs[_i2];
+          var fragName = fragmentDef.name.value;
+
+          if (fragmentNameUsed[fragName] !== true) {
+            context.reportError(new GraphQLError(unusedFragMessage(fragName), [fragmentDef]));
+          }
+        }
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7874,6 +8378,53 @@ function isSDLNode(value) {
  *
  * 
  */
+function typeIncompatibleSpreadMessage(fragName, parentType, fragType) {
+  return "Fragment \"".concat(fragName, "\" cannot be spread here as objects of ") + "type \"".concat(parentType, "\" can never be of type \"").concat(fragType, "\".");
+}
+function typeIncompatibleAnonSpreadMessage(parentType, fragType) {
+  return 'Fragment cannot be spread here as objects of ' + "type \"".concat(parentType, "\" can never be of type \"").concat(fragType, "\".");
+}
+/**
+ * Possible fragment spread
+ *
+ * A fragment spread is only valid if the type condition could ever possibly
+ * be true: if there is a non-empty intersection of the possible parent types,
+ * and possible types which pass the type condition.
+ */
+
+function PossibleFragmentSpreads(context) {
+  return {
+    InlineFragment: function InlineFragment(node) {
+      var fragType = context.getType();
+      var parentType = context.getParentType();
+
+      if (isCompositeType(fragType) && isCompositeType(parentType) && !doTypesOverlap(context.getSchema(), fragType, parentType)) {
+        context.reportError(new GraphQLError(typeIncompatibleAnonSpreadMessage(inspect(parentType), inspect(fragType)), [node]));
+      }
+    },
+    FragmentSpread: function FragmentSpread(node) {
+      var fragName = node.name.value;
+      var fragType = getFragmentType(context, fragName);
+      var parentType = context.getParentType();
+
+      if (fragType && parentType && !doTypesOverlap(context.getSchema(), fragType, parentType)) {
+        context.reportError(new GraphQLError(typeIncompatibleSpreadMessage(fragName, inspect(parentType), inspect(fragType)), [node]));
+      }
+    }
+  };
+}
+
+function getFragmentType(context, name) {
+  var frag = context.getFragment(name);
+
+  if (frag) {
+    var type = typeFromAST(context.getSchema(), frag.typeCondition);
+
+    if (isCompositeType(type)) {
+      return type;
+    }
+  }
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7883,6 +8434,71 @@ function isSDLNode(value) {
  *
  * 
  */
+function cycleErrorMessage(fragName, spreadNames) {
+  var via = spreadNames.length ? ' via ' + spreadNames.join(', ') : '';
+  return "Cannot spread fragment \"".concat(fragName, "\" within itself").concat(via, ".");
+}
+function NoFragmentCycles(context) {
+  // Tracks already visited fragments to maintain O(N) and to ensure that cycles
+  // are not redundantly reported.
+  var visitedFrags = Object.create(null); // Array of AST nodes used to produce meaningful errors
+
+  var spreadPath = []; // Position in the spread path
+
+  var spreadPathIndexByName = Object.create(null);
+  return {
+    OperationDefinition: function OperationDefinition() {
+      return false;
+    },
+    FragmentDefinition: function FragmentDefinition(node) {
+      detectCycleRecursive(node);
+      return false;
+    }
+  }; // This does a straight-forward DFS to find cycles.
+  // It does not terminate when a cycle was found but continues to explore
+  // the graph to find all possible cycles.
+
+  function detectCycleRecursive(fragment) {
+    if (visitedFrags[fragment.name.value]) {
+      return;
+    }
+
+    var fragmentName = fragment.name.value;
+    visitedFrags[fragmentName] = true;
+    var spreadNodes = context.getFragmentSpreads(fragment.selectionSet);
+
+    if (spreadNodes.length === 0) {
+      return;
+    }
+
+    spreadPathIndexByName[fragmentName] = spreadPath.length;
+
+    for (var i = 0; i < spreadNodes.length; i++) {
+      var spreadNode = spreadNodes[i];
+      var spreadName = spreadNode.name.value;
+      var cycleIndex = spreadPathIndexByName[spreadName];
+      spreadPath.push(spreadNode);
+
+      if (cycleIndex === undefined) {
+        var spreadFragment = context.getFragment(spreadName);
+
+        if (spreadFragment) {
+          detectCycleRecursive(spreadFragment);
+        }
+      } else {
+        var cyclePath = spreadPath.slice(cycleIndex);
+        var fragmentNames = cyclePath.slice(0, -1).map(function (s) {
+          return s.name.value;
+        });
+        context.reportError(new GraphQLError(cycleErrorMessage(spreadName, fragmentNames), cyclePath));
+      }
+
+      spreadPath.pop();
+    }
+
+    spreadPathIndexByName[fragmentName] = undefined;
+  }
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7892,6 +8508,32 @@ function isSDLNode(value) {
  *
  * 
  */
+function duplicateVariableMessage(variableName) {
+  return "There can be only one variable named \"".concat(variableName, "\".");
+}
+/**
+ * Unique variable names
+ *
+ * A GraphQL operation is only valid if all its variables are uniquely named.
+ */
+
+function UniqueVariableNames(context) {
+  var knownVariableNames = Object.create(null);
+  return {
+    OperationDefinition: function OperationDefinition() {
+      knownVariableNames = Object.create(null);
+    },
+    VariableDefinition: function VariableDefinition(node) {
+      var variableName = node.variable.name.value;
+
+      if (knownVariableNames[variableName]) {
+        context.reportError(new GraphQLError(duplicateVariableMessage(variableName), [knownVariableNames[variableName], node.variable.name]));
+      } else {
+        knownVariableNames[variableName] = node.variable.name;
+      }
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7901,6 +8543,60 @@ function isSDLNode(value) {
  *
  * 
  */
+function undefinedVarMessage(varName, opName) {
+  return opName ? "Variable \"$".concat(varName, "\" is not defined by operation \"").concat(opName, "\".") : "Variable \"$".concat(varName, "\" is not defined.");
+}
+/**
+ * No undefined variables
+ *
+ * A GraphQL operation is only valid if all variables encountered, both directly
+ * and via fragment spreads, are defined by that operation.
+ */
+
+function NoUndefinedVariables(context) {
+  var variableNameDefined = Object.create(null);
+  return {
+    OperationDefinition: {
+      enter: function enter() {
+        variableNameDefined = Object.create(null);
+      },
+      leave: function leave(operation) {
+        var usages = context.getRecursiveVariableUsages(operation);
+        var _iteratorNormalCompletion = true;
+        var _didIteratorError = false;
+        var _iteratorError = undefined;
+
+        try {
+          for (var _iterator = usages[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+            var _ref2 = _step.value;
+            var node = _ref2.node;
+            var varName = node.name.value;
+
+            if (variableNameDefined[varName] !== true) {
+              context.reportError(new GraphQLError(undefinedVarMessage(varName, operation.name && operation.name.value), [node, operation]));
+            }
+          }
+        } catch (err) {
+          _didIteratorError = true;
+          _iteratorError = err;
+        } finally {
+          try {
+            if (!_iteratorNormalCompletion && _iterator.return != null) {
+              _iterator.return();
+            }
+          } finally {
+            if (_didIteratorError) {
+              throw _iteratorError;
+            }
+          }
+        }
+      }
+    },
+    VariableDefinition: function VariableDefinition(node) {
+      variableNameDefined[node.variable.name.value] = true;
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -7910,6 +8606,67 @@ function isSDLNode(value) {
  *
  * 
  */
+function unusedVariableMessage(varName, opName) {
+  return opName ? "Variable \"$".concat(varName, "\" is never used in operation \"").concat(opName, "\".") : "Variable \"$".concat(varName, "\" is never used.");
+}
+/**
+ * No unused variables
+ *
+ * A GraphQL operation is only valid if all variables defined by an operation
+ * are used, either directly or within a spread fragment.
+ */
+
+function NoUnusedVariables(context) {
+  var variableDefs = [];
+  return {
+    OperationDefinition: {
+      enter: function enter() {
+        variableDefs = [];
+      },
+      leave: function leave(operation) {
+        var variableNameUsed = Object.create(null);
+        var usages = context.getRecursiveVariableUsages(operation);
+        var opName = operation.name ? operation.name.value : null;
+        var _iteratorNormalCompletion = true;
+        var _didIteratorError = false;
+        var _iteratorError = undefined;
+
+        try {
+          for (var _iterator = usages[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+            var _ref2 = _step.value;
+            var node = _ref2.node;
+            variableNameUsed[node.name.value] = true;
+          }
+        } catch (err) {
+          _didIteratorError = true;
+          _iteratorError = err;
+        } finally {
+          try {
+            if (!_iteratorNormalCompletion && _iterator.return != null) {
+              _iterator.return();
+            }
+          } finally {
+            if (_didIteratorError) {
+              throw _iteratorError;
+            }
+          }
+        }
+
+        for (var _i = 0; _i < variableDefs.length; _i++) {
+          var variableDef = variableDefs[_i];
+          var variableName = variableDef.variable.name.value;
+
+          if (variableNameUsed[variableName] !== true) {
+            context.reportError(new GraphQLError(unusedVariableMessage(variableName, opName), [variableDef]));
+          }
+        }
+      }
+    },
+    VariableDefinition: function VariableDefinition(def) {
+      variableDefs.push(def);
+    }
+  };
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -8147,6 +8904,48 @@ function UniqueDirectivesPerLocation(context) {
   };
 }
 
+function _objectSpread$1(target) {
+  for (var i = 1; i < arguments.length; i++) {
+    var source = arguments[i] != null ? arguments[i] : {};
+    var ownKeys = Object.keys(source);
+
+    if (typeof Object.getOwnPropertySymbols === 'function') {
+      ownKeys = ownKeys.concat(Object.getOwnPropertySymbols(source).filter(function (sym) {
+        return Object.getOwnPropertyDescriptor(source, sym).enumerable;
+      }));
+    }
+
+    ownKeys.forEach(function (key) {
+      _defineProperty$1(target, key, source[key]);
+    });
+  }
+
+  return target;
+}
+
+function _defineProperty$1(obj, key, value) {
+  if (key in obj) {
+    Object.defineProperty(obj, key, {
+      value: value,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    });
+  } else {
+    obj[key] = value;
+  }
+
+  return obj;
+}
+function unknownArgMessage(argName, fieldName, typeName, suggestedArgs) {
+  var message = "Unknown argument \"".concat(argName, "\" on field \"").concat(fieldName, "\" of ") + "type \"".concat(typeName, "\".");
+
+  if (suggestedArgs.length) {
+    message += " Did you mean ".concat(quotedOrList(suggestedArgs), "?");
+  }
+
+  return message;
+}
 function unknownDirectiveArgMessage(argName, directiveName, suggestedArgs) {
   var message = "Unknown argument \"".concat(argName, "\" on directive \"@").concat(directiveName, "\".");
 
@@ -8156,6 +8955,30 @@ function unknownDirectiveArgMessage(argName, directiveName, suggestedArgs) {
 
   return message;
 }
+/**
+ * Known argument names
+ *
+ * A GraphQL field is only valid if all supplied arguments are defined by
+ * that field.
+ */
+
+function KnownArgumentNames(context) {
+  return _objectSpread$1({}, KnownArgumentNamesOnDirectives(context), {
+    Argument: function Argument(argNode) {
+      var argDef = context.getArgument();
+      var fieldDef = context.getFieldDef();
+      var parentType = context.getParentType();
+
+      if (!argDef && fieldDef && parentType) {
+        var argName = argNode.name.value;
+        var knownArgsNames = fieldDef.args.map(function (arg) {
+          return arg.name;
+        });
+        context.reportError(new GraphQLError(unknownArgMessage(argName, fieldDef.name, parentType.name, suggestionList(argName, knownArgsNames)), argNode));
+      }
+    }
+  });
+} // @internal
 
 function KnownArgumentNamesOnDirectives(context) {
   var directiveArgs = Object.create(null);
@@ -8307,10 +9130,255 @@ function UniqueArgumentNames(context) {
  *
  * 
  */
+function badValueMessage(typeName, valueName, message) {
+  return "Expected type ".concat(typeName, ", found ").concat(valueName) + (message ? "; ".concat(message) : '.');
+}
+function requiredFieldMessage(typeName, fieldName, fieldTypeName) {
+  return "Field ".concat(typeName, ".").concat(fieldName, " of required type ") + "".concat(fieldTypeName, " was not provided.");
+}
+function unknownFieldMessage(typeName, fieldName, message) {
+  return "Field \"".concat(fieldName, "\" is not defined by type ").concat(typeName) + (message ? "; ".concat(message) : '.');
+}
+/**
+ * Value literals of correct type
+ *
+ * A GraphQL document is only valid if all value literals are of the type
+ * expected at their position.
+ */
 
+function ValuesOfCorrectType(context) {
+  return {
+    NullValue: function NullValue(node) {
+      var type = context.getInputType();
+
+      if (isNonNullType(type)) {
+        context.reportError(new GraphQLError(badValueMessage(inspect(type), print(node)), node));
+      }
+    },
+    ListValue: function ListValue(node) {
+      // Note: TypeInfo will traverse into a list's item type, so look to the
+      // parent input type to check if it is a list.
+      var type = getNullableType(context.getParentInputType());
+
+      if (!isListType(type)) {
+        isValidScalar(context, node);
+        return false; // Don't traverse further.
+      }
+    },
+    ObjectValue: function ObjectValue(node) {
+      var type = getNamedType(context.getInputType());
+
+      if (!isInputObjectType(type)) {
+        isValidScalar(context, node);
+        return false; // Don't traverse further.
+      } // Ensure every required field exists.
+
+
+      var fieldNodeMap = keyMap(node.fields, function (field) {
+        return field.name.value;
+      });
+      var _iteratorNormalCompletion = true;
+      var _didIteratorError = false;
+      var _iteratorError = undefined;
+
+      try {
+        for (var _iterator = objectValues(type.getFields())[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+          var fieldDef = _step.value;
+          var fieldNode = fieldNodeMap[fieldDef.name];
+
+          if (!fieldNode && isRequiredInputField(fieldDef)) {
+            var typeStr = inspect(fieldDef.type);
+            context.reportError(new GraphQLError(requiredFieldMessage(type.name, fieldDef.name, typeStr), node));
+          }
+        }
+      } catch (err) {
+        _didIteratorError = true;
+        _iteratorError = err;
+      } finally {
+        try {
+          if (!_iteratorNormalCompletion && _iterator.return != null) {
+            _iterator.return();
+          }
+        } finally {
+          if (_didIteratorError) {
+            throw _iteratorError;
+          }
+        }
+      }
+    },
+    ObjectField: function ObjectField(node) {
+      var parentType = getNamedType(context.getParentInputType());
+      var fieldType = context.getInputType();
+
+      if (!fieldType && isInputObjectType(parentType)) {
+        var suggestions = suggestionList(node.name.value, Object.keys(parentType.getFields()));
+        var didYouMean = suggestions.length !== 0 ? "Did you mean ".concat(orList(suggestions), "?") : undefined;
+        context.reportError(new GraphQLError(unknownFieldMessage(parentType.name, node.name.value, didYouMean), node));
+      }
+    },
+    EnumValue: function EnumValue(node) {
+      var type = getNamedType(context.getInputType());
+
+      if (!isEnumType(type)) {
+        isValidScalar(context, node);
+      } else if (!type.getValue(node.value)) {
+        context.reportError(new GraphQLError(badValueMessage(type.name, print(node), enumTypeSuggestion(type, node)), node));
+      }
+    },
+    IntValue: function IntValue(node) {
+      return isValidScalar(context, node);
+    },
+    FloatValue: function FloatValue(node) {
+      return isValidScalar(context, node);
+    },
+    StringValue: function StringValue(node) {
+      return isValidScalar(context, node);
+    },
+    BooleanValue: function BooleanValue(node) {
+      return isValidScalar(context, node);
+    }
+  };
+}
+/**
+ * Any value literal may be a valid representation of a Scalar, depending on
+ * that scalar type.
+ */
+
+function isValidScalar(context, node) {
+  // Report any error at the full type expected by the location.
+  var locationType = context.getInputType();
+
+  if (!locationType) {
+    return;
+  }
+
+  var type = getNamedType(locationType);
+
+  if (!isScalarType(type)) {
+    context.reportError(new GraphQLError(badValueMessage(inspect(locationType), print(node), enumTypeSuggestion(type, node)), node));
+    return;
+  } // Scalars determine if a literal value is valid via parseLiteral() which
+  // may throw or return an invalid value to indicate failure.
+
+
+  try {
+    var parseResult = type.parseLiteral(node, undefined
+    /* variables */
+    );
+
+    if (isInvalid(parseResult)) {
+      context.reportError(new GraphQLError(badValueMessage(inspect(locationType), print(node)), node));
+    }
+  } catch (error) {
+    // Ensure a reference to the original error is maintained.
+    context.reportError(new GraphQLError(badValueMessage(inspect(locationType), print(node), error.message), node, undefined, undefined, undefined, error));
+  }
+}
+
+function enumTypeSuggestion(type, node) {
+  if (isEnumType(type)) {
+    var suggestions = suggestionList(print(node), type.getValues().map(function (value) {
+      return value.name;
+    }));
+
+    if (suggestions.length !== 0) {
+      return "Did you mean the enum value ".concat(orList(suggestions), "?");
+    }
+  }
+}
+
+function _objectSpread$2(target) {
+  for (var i = 1; i < arguments.length; i++) {
+    var source = arguments[i] != null ? arguments[i] : {};
+    var ownKeys = Object.keys(source);
+
+    if (typeof Object.getOwnPropertySymbols === 'function') {
+      ownKeys = ownKeys.concat(Object.getOwnPropertySymbols(source).filter(function (sym) {
+        return Object.getOwnPropertyDescriptor(source, sym).enumerable;
+      }));
+    }
+
+    ownKeys.forEach(function (key) {
+      _defineProperty$2(target, key, source[key]);
+    });
+  }
+
+  return target;
+}
+
+function _defineProperty$2(obj, key, value) {
+  if (key in obj) {
+    Object.defineProperty(obj, key, {
+      value: value,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    });
+  } else {
+    obj[key] = value;
+  }
+
+  return obj;
+}
+function missingFieldArgMessage(fieldName, argName, type) {
+  return "Field \"".concat(fieldName, "\" argument \"").concat(argName, "\" of type ") + "\"".concat(type, "\" is required but not provided.");
+}
 function missingDirectiveArgMessage(directiveName, argName, type) {
   return "Directive \"@".concat(directiveName, "\" argument \"").concat(argName, "\" of type ") + "\"".concat(type, "\" is required but not provided.");
 }
+/**
+ * Provided required arguments
+ *
+ * A field or directive is only valid if all required (non-null without a
+ * default value) field arguments have been provided.
+ */
+
+function ProvidedRequiredArguments(context) {
+  return _objectSpread$2({}, ProvidedRequiredArgumentsOnDirectives(context), {
+    Field: {
+      // Validate on leave to allow for deeper errors to appear first.
+      leave: function leave(fieldNode) {
+        var fieldDef = context.getFieldDef();
+
+        if (!fieldDef) {
+          return false;
+        }
+
+        var argNodes = fieldNode.arguments || [];
+        var argNodeMap = keyMap(argNodes, function (arg) {
+          return arg.name.value;
+        });
+        var _iteratorNormalCompletion = true;
+        var _didIteratorError = false;
+        var _iteratorError = undefined;
+
+        try {
+          for (var _iterator = fieldDef.args[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+            var argDef = _step.value;
+            var argNode = argNodeMap[argDef.name];
+
+            if (!argNode && isRequiredArgument(argDef)) {
+              context.reportError(new GraphQLError(missingFieldArgMessage(fieldDef.name, argDef.name, inspect(argDef.type)), [fieldNode]));
+            }
+          }
+        } catch (err) {
+          _didIteratorError = true;
+          _iteratorError = err;
+        } finally {
+          try {
+            if (!_iteratorNormalCompletion && _iterator.return != null) {
+              _iterator.return();
+            }
+          } finally {
+            if (_didIteratorError) {
+              throw _iteratorError;
+            }
+          }
+        }
+      }
+    }
+  });
+} // @internal
 
 function ProvidedRequiredArgumentsOnDirectives(context) {
   var requiredArgsMap = Object.create(null);
@@ -8413,6 +9481,91 @@ function isRequiredArgumentNode(arg) {
  *
  * 
  */
+function badVarPosMessage(varName, varType, expectedType) {
+  return "Variable \"$".concat(varName, "\" of type \"").concat(varType, "\" used in ") + "position expecting type \"".concat(expectedType, "\".");
+}
+/**
+ * Variables passed to field arguments conform to type
+ */
+
+function VariablesInAllowedPosition(context) {
+  var varDefMap = Object.create(null);
+  return {
+    OperationDefinition: {
+      enter: function enter() {
+        varDefMap = Object.create(null);
+      },
+      leave: function leave(operation) {
+        var usages = context.getRecursiveVariableUsages(operation);
+        var _iteratorNormalCompletion = true;
+        var _didIteratorError = false;
+        var _iteratorError = undefined;
+
+        try {
+          for (var _iterator = usages[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+            var _ref2 = _step.value;
+            var node = _ref2.node;
+            var type = _ref2.type;
+            var defaultValue = _ref2.defaultValue;
+            var varName = node.name.value;
+            var varDef = varDefMap[varName];
+
+            if (varDef && type) {
+              // A var type is allowed if it is the same or more strict (e.g. is
+              // a subtype of) than the expected type. It can be more strict if
+              // the variable type is non-null when the expected type is nullable.
+              // If both are list types, the variable item type can be more strict
+              // than the expected item type (contravariant).
+              var schema = context.getSchema();
+              var varType = typeFromAST(schema, varDef.type);
+
+              if (varType && !allowedVariableUsage(schema, varType, varDef.defaultValue, type, defaultValue)) {
+                context.reportError(new GraphQLError(badVarPosMessage(varName, inspect(varType), inspect(type)), [varDef, node]));
+              }
+            }
+          }
+        } catch (err) {
+          _didIteratorError = true;
+          _iteratorError = err;
+        } finally {
+          try {
+            if (!_iteratorNormalCompletion && _iterator.return != null) {
+              _iterator.return();
+            }
+          } finally {
+            if (_didIteratorError) {
+              throw _iteratorError;
+            }
+          }
+        }
+      }
+    },
+    VariableDefinition: function VariableDefinition(node) {
+      varDefMap[node.variable.name.value] = node;
+    }
+  };
+}
+/**
+ * Returns true if the variable is allowed in the location it was found,
+ * which includes considering if default values exist for either the variable
+ * or the location at which it is located.
+ */
+
+function allowedVariableUsage(schema, varType, varDefaultValue, locationType, locationDefaultValue) {
+  if (isNonNullType(locationType) && !isNonNullType(varType)) {
+    var hasNonNullVariableDefaultValue = varDefaultValue && varDefaultValue.kind !== Kind.NULL;
+    var hasLocationDefaultValue = locationDefaultValue !== undefined;
+
+    if (!hasNonNullVariableDefaultValue && !hasLocationDefaultValue) {
+      return false;
+    }
+
+    var nullableLocationType = locationType.ofType;
+    return isTypeSubTypeOf(schema, varType, nullableLocationType);
+  }
+
+  return isTypeSubTypeOf(schema, varType, locationType);
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -8422,6 +9575,590 @@ function isRequiredArgumentNode(arg) {
  *
  * 
  */
+function fieldsConflictMessage(responseName, reason) {
+  return "Fields \"".concat(responseName, "\" conflict because ").concat(reasonMessage(reason), ". ") + 'Use different aliases on the fields to fetch both if this was intentional.';
+}
+
+function reasonMessage(reason) {
+  if (Array.isArray(reason)) {
+    return reason.map(function (_ref) {
+      var responseName = _ref[0],
+          subreason = _ref[1];
+      return "subfields \"".concat(responseName, "\" conflict because ").concat(reasonMessage(subreason));
+    }).join(' and ');
+  }
+
+  return reason;
+}
+/**
+ * Overlapping fields can be merged
+ *
+ * A selection set is only valid if all fields (including spreading any
+ * fragments) either correspond to distinct response names or can be merged
+ * without ambiguity.
+ */
+
+
+function OverlappingFieldsCanBeMerged(context) {
+  // A memoization for when two fragments are compared "between" each other for
+  // conflicts. Two fragments may be compared many times, so memoizing this can
+  // dramatically improve the performance of this validator.
+  var comparedFragmentPairs = new PairSet(); // A cache for the "field map" and list of fragment names found in any given
+  // selection set. Selection sets may be asked for this information multiple
+  // times, so this improves the performance of this validator.
+
+  var cachedFieldsAndFragmentNames = new Map();
+  return {
+    SelectionSet: function SelectionSet(selectionSet) {
+      var conflicts = findConflictsWithinSelectionSet(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, context.getParentType(), selectionSet);
+
+      for (var _i = 0; _i < conflicts.length; _i++) {
+        var _ref3 = conflicts[_i];
+        var _ref2$ = _ref3[0];
+        var responseName = _ref2$[0];
+        var reason = _ref2$[1];
+        var fields1 = _ref3[1];
+        var fields2 = _ref3[2];
+        context.reportError(new GraphQLError(fieldsConflictMessage(responseName, reason), fields1.concat(fields2)));
+      }
+    }
+  };
+}
+/**
+ * Algorithm:
+ *
+ * Conflicts occur when two fields exist in a query which will produce the same
+ * response name, but represent differing values, thus creating a conflict.
+ * The algorithm below finds all conflicts via making a series of comparisons
+ * between fields. In order to compare as few fields as possible, this makes
+ * a series of comparisons "within" sets of fields and "between" sets of fields.
+ *
+ * Given any selection set, a collection produces both a set of fields by
+ * also including all inline fragments, as well as a list of fragments
+ * referenced by fragment spreads.
+ *
+ * A) Each selection set represented in the document first compares "within" its
+ * collected set of fields, finding any conflicts between every pair of
+ * overlapping fields.
+ * Note: This is the *only time* that a the fields "within" a set are compared
+ * to each other. After this only fields "between" sets are compared.
+ *
+ * B) Also, if any fragment is referenced in a selection set, then a
+ * comparison is made "between" the original set of fields and the
+ * referenced fragment.
+ *
+ * C) Also, if multiple fragments are referenced, then comparisons
+ * are made "between" each referenced fragment.
+ *
+ * D) When comparing "between" a set of fields and a referenced fragment, first
+ * a comparison is made between each field in the original set of fields and
+ * each field in the the referenced set of fields.
+ *
+ * E) Also, if any fragment is referenced in the referenced selection set,
+ * then a comparison is made "between" the original set of fields and the
+ * referenced fragment (recursively referring to step D).
+ *
+ * F) When comparing "between" two fragments, first a comparison is made between
+ * each field in the first referenced set of fields and each field in the the
+ * second referenced set of fields.
+ *
+ * G) Also, any fragments referenced by the first must be compared to the
+ * second, and any fragments referenced by the second must be compared to the
+ * first (recursively referring to step F).
+ *
+ * H) When comparing two fields, if both have selection sets, then a comparison
+ * is made "between" both selection sets, first comparing the set of fields in
+ * the first selection set with the set of fields in the second.
+ *
+ * I) Also, if any fragment is referenced in either selection set, then a
+ * comparison is made "between" the other set of fields and the
+ * referenced fragment.
+ *
+ * J) Also, if two fragments are referenced in both selection sets, then a
+ * comparison is made "between" the two fragments.
+ *
+ */
+// Find all conflicts found "within" a selection set, including those found
+// via spreading in fragments. Called when visiting each SelectionSet in the
+// GraphQL Document.
+
+function findConflictsWithinSelectionSet(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, parentType, selectionSet) {
+  var conflicts = [];
+
+  var _getFieldsAndFragment = getFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, parentType, selectionSet),
+      fieldMap = _getFieldsAndFragment[0],
+      fragmentNames = _getFieldsAndFragment[1]; // (A) Find find all conflicts "within" the fields of this selection set.
+  // Note: this is the *only place* `collectConflictsWithin` is called.
+
+
+  collectConflictsWithin(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, fieldMap);
+
+  if (fragmentNames.length !== 0) {
+    // (B) Then collect conflicts between these fields and those represented by
+    // each spread fragment name found.
+    var comparedFragments = Object.create(null);
+
+    for (var i = 0; i < fragmentNames.length; i++) {
+      collectConflictsBetweenFieldsAndFragment(context, conflicts, cachedFieldsAndFragmentNames, comparedFragments, comparedFragmentPairs, false, fieldMap, fragmentNames[i]); // (C) Then compare this fragment with all other fragments found in this
+      // selection set to collect conflicts between fragments spread together.
+      // This compares each item in the list of fragment names to every other
+      // item in that same list (except for itself).
+
+      for (var j = i + 1; j < fragmentNames.length; j++) {
+        collectConflictsBetweenFragments(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, false, fragmentNames[i], fragmentNames[j]);
+      }
+    }
+  }
+
+  return conflicts;
+} // Collect all conflicts found between a set of fields and a fragment reference
+// including via spreading in any nested fragments.
+
+
+function collectConflictsBetweenFieldsAndFragment(context, conflicts, cachedFieldsAndFragmentNames, comparedFragments, comparedFragmentPairs, areMutuallyExclusive, fieldMap, fragmentName) {
+  // Memoize so a fragment is not compared for conflicts more than once.
+  if (comparedFragments[fragmentName]) {
+    return;
+  }
+
+  comparedFragments[fragmentName] = true;
+  var fragment = context.getFragment(fragmentName);
+
+  if (!fragment) {
+    return;
+  }
+
+  var _getReferencedFieldsA = getReferencedFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, fragment),
+      fieldMap2 = _getReferencedFieldsA[0],
+      fragmentNames2 = _getReferencedFieldsA[1]; // Do not compare a fragment's fieldMap to itself.
+
+
+  if (fieldMap === fieldMap2) {
+    return;
+  } // (D) First collect any conflicts between the provided collection of fields
+  // and the collection of fields represented by the given fragment.
+
+
+  collectConflictsBetween(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, fieldMap, fieldMap2); // (E) Then collect any conflicts between the provided collection of fields
+  // and any fragment names found in the given fragment.
+
+  for (var i = 0; i < fragmentNames2.length; i++) {
+    collectConflictsBetweenFieldsAndFragment(context, conflicts, cachedFieldsAndFragmentNames, comparedFragments, comparedFragmentPairs, areMutuallyExclusive, fieldMap, fragmentNames2[i]);
+  }
+} // Collect all conflicts found between two fragments, including via spreading in
+// any nested fragments.
+
+
+function collectConflictsBetweenFragments(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, fragmentName1, fragmentName2) {
+  // No need to compare a fragment to itself.
+  if (fragmentName1 === fragmentName2) {
+    return;
+  } // Memoize so two fragments are not compared for conflicts more than once.
+
+
+  if (comparedFragmentPairs.has(fragmentName1, fragmentName2, areMutuallyExclusive)) {
+    return;
+  }
+
+  comparedFragmentPairs.add(fragmentName1, fragmentName2, areMutuallyExclusive);
+  var fragment1 = context.getFragment(fragmentName1);
+  var fragment2 = context.getFragment(fragmentName2);
+
+  if (!fragment1 || !fragment2) {
+    return;
+  }
+
+  var _getReferencedFieldsA2 = getReferencedFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, fragment1),
+      fieldMap1 = _getReferencedFieldsA2[0],
+      fragmentNames1 = _getReferencedFieldsA2[1];
+
+  var _getReferencedFieldsA3 = getReferencedFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, fragment2),
+      fieldMap2 = _getReferencedFieldsA3[0],
+      fragmentNames2 = _getReferencedFieldsA3[1]; // (F) First, collect all conflicts between these two collections of fields
+  // (not including any nested fragments).
+
+
+  collectConflictsBetween(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, fieldMap1, fieldMap2); // (G) Then collect conflicts between the first fragment and any nested
+  // fragments spread in the second fragment.
+
+  for (var j = 0; j < fragmentNames2.length; j++) {
+    collectConflictsBetweenFragments(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, fragmentName1, fragmentNames2[j]);
+  } // (G) Then collect conflicts between the second fragment and any nested
+  // fragments spread in the first fragment.
+
+
+  for (var i = 0; i < fragmentNames1.length; i++) {
+    collectConflictsBetweenFragments(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, fragmentNames1[i], fragmentName2);
+  }
+} // Find all conflicts found between two selection sets, including those found
+// via spreading in fragments. Called when determining if conflicts exist
+// between the sub-fields of two overlapping fields.
+
+
+function findConflictsBetweenSubSelectionSets(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, parentType1, selectionSet1, parentType2, selectionSet2) {
+  var conflicts = [];
+
+  var _getFieldsAndFragment2 = getFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, parentType1, selectionSet1),
+      fieldMap1 = _getFieldsAndFragment2[0],
+      fragmentNames1 = _getFieldsAndFragment2[1];
+
+  var _getFieldsAndFragment3 = getFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, parentType2, selectionSet2),
+      fieldMap2 = _getFieldsAndFragment3[0],
+      fragmentNames2 = _getFieldsAndFragment3[1]; // (H) First, collect all conflicts between these two collections of field.
+
+
+  collectConflictsBetween(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, fieldMap1, fieldMap2); // (I) Then collect conflicts between the first collection of fields and
+  // those referenced by each fragment name associated with the second.
+
+  if (fragmentNames2.length !== 0) {
+    var comparedFragments = Object.create(null);
+
+    for (var j = 0; j < fragmentNames2.length; j++) {
+      collectConflictsBetweenFieldsAndFragment(context, conflicts, cachedFieldsAndFragmentNames, comparedFragments, comparedFragmentPairs, areMutuallyExclusive, fieldMap1, fragmentNames2[j]);
+    }
+  } // (I) Then collect conflicts between the second collection of fields and
+  // those referenced by each fragment name associated with the first.
+
+
+  if (fragmentNames1.length !== 0) {
+    var _comparedFragments = Object.create(null);
+
+    for (var i = 0; i < fragmentNames1.length; i++) {
+      collectConflictsBetweenFieldsAndFragment(context, conflicts, cachedFieldsAndFragmentNames, _comparedFragments, comparedFragmentPairs, areMutuallyExclusive, fieldMap2, fragmentNames1[i]);
+    }
+  } // (J) Also collect conflicts between any fragment names by the first and
+  // fragment names by the second. This compares each item in the first set of
+  // names to each item in the second set of names.
+
+
+  for (var _i2 = 0; _i2 < fragmentNames1.length; _i2++) {
+    for (var _j = 0; _j < fragmentNames2.length; _j++) {
+      collectConflictsBetweenFragments(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, fragmentNames1[_i2], fragmentNames2[_j]);
+    }
+  }
+
+  return conflicts;
+} // Collect all Conflicts "within" one collection of fields.
+
+
+function collectConflictsWithin(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, fieldMap) {
+  // A field map is a keyed collection, where each key represents a response
+  // name and the value at that key is a list of all fields which provide that
+  // response name. For every response name, if there are multiple fields, they
+  var _iteratorNormalCompletion = true;
+  var _didIteratorError = false;
+  var _iteratorError = undefined;
+
+  try {
+    for (var _iterator = objectEntries(fieldMap)[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+      var _ref5 = _step.value;
+      var responseName = _ref5[0];
+      var fields = _ref5[1]; // This compares every field in the list to every other field in this list
+      // (except to itself). If the list only has one item, nothing needs to
+      // be compared.
+
+      if (fields.length > 1) {
+        for (var i = 0; i < fields.length; i++) {
+          for (var j = i + 1; j < fields.length; j++) {
+            var conflict = findConflict(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, false, // within one collection is never mutually exclusive
+            responseName, fields[i], fields[j]);
+
+            if (conflict) {
+              conflicts.push(conflict);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    _didIteratorError = true;
+    _iteratorError = err;
+  } finally {
+    try {
+      if (!_iteratorNormalCompletion && _iterator.return != null) {
+        _iterator.return();
+      }
+    } finally {
+      if (_didIteratorError) {
+        throw _iteratorError;
+      }
+    }
+  }
+} // Collect all Conflicts between two collections of fields. This is similar to,
+// but different from the `collectConflictsWithin` function above. This check
+// assumes that `collectConflictsWithin` has already been called on each
+// provided collection of fields. This is true because this validator traverses
+// each individual selection set.
+
+
+function collectConflictsBetween(context, conflicts, cachedFieldsAndFragmentNames, comparedFragmentPairs, parentFieldsAreMutuallyExclusive, fieldMap1, fieldMap2) {
+  // A field map is a keyed collection, where each key represents a response
+  // name and the value at that key is a list of all fields which provide that
+  // response name. For any response name which appears in both provided field
+  // maps, each field from the first field map must be compared to every field
+  // in the second field map to find potential conflicts.
+  var _arr = Object.keys(fieldMap1);
+
+  for (var _i3 = 0; _i3 < _arr.length; _i3++) {
+    var responseName = _arr[_i3];
+    var fields2 = fieldMap2[responseName];
+
+    if (fields2) {
+      var fields1 = fieldMap1[responseName];
+
+      for (var i = 0; i < fields1.length; i++) {
+        for (var j = 0; j < fields2.length; j++) {
+          var conflict = findConflict(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, parentFieldsAreMutuallyExclusive, responseName, fields1[i], fields2[j]);
+
+          if (conflict) {
+            conflicts.push(conflict);
+          }
+        }
+      }
+    }
+  }
+} // Determines if there is a conflict between two particular fields, including
+// comparing their sub-fields.
+
+
+function findConflict(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, parentFieldsAreMutuallyExclusive, responseName, field1, field2) {
+  var parentType1 = field1[0],
+      node1 = field1[1],
+      def1 = field1[2];
+  var parentType2 = field2[0],
+      node2 = field2[1],
+      def2 = field2[2]; // If it is known that two fields could not possibly apply at the same
+  // time, due to the parent types, then it is safe to permit them to diverge
+  // in aliased field or arguments used as they will not present any ambiguity
+  // by differing.
+  // It is known that two parent types could never overlap if they are
+  // different Object types. Interface or Union types might overlap - if not
+  // in the current state of the schema, then perhaps in some future version,
+  // thus may not safely diverge.
+
+  var areMutuallyExclusive = parentFieldsAreMutuallyExclusive || parentType1 !== parentType2 && isObjectType(parentType1) && isObjectType(parentType2); // The return type for each field.
+
+  var type1 = def1 && def1.type;
+  var type2 = def2 && def2.type;
+
+  if (!areMutuallyExclusive) {
+    // Two aliases must refer to the same field.
+    var name1 = node1.name.value;
+    var name2 = node2.name.value;
+
+    if (name1 !== name2) {
+      return [[responseName, "".concat(name1, " and ").concat(name2, " are different fields")], [node1], [node2]];
+    } // Two field calls must have the same arguments.
+
+
+    if (!sameArguments(node1.arguments || [], node2.arguments || [])) {
+      return [[responseName, 'they have differing arguments'], [node1], [node2]];
+    }
+  }
+
+  if (type1 && type2 && doTypesConflict(type1, type2)) {
+    return [[responseName, "they return conflicting types ".concat(inspect(type1), " and ").concat(inspect(type2))], [node1], [node2]];
+  } // Collect and compare sub-fields. Use the same "visited fragment names" list
+  // for both collections so fields in a fragment reference are never
+  // compared to themselves.
+
+
+  var selectionSet1 = node1.selectionSet;
+  var selectionSet2 = node2.selectionSet;
+
+  if (selectionSet1 && selectionSet2) {
+    var conflicts = findConflictsBetweenSubSelectionSets(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, areMutuallyExclusive, getNamedType(type1), selectionSet1, getNamedType(type2), selectionSet2);
+    return subfieldConflicts(conflicts, responseName, node1, node2);
+  }
+}
+
+function sameArguments(arguments1, arguments2) {
+  if (arguments1.length !== arguments2.length) {
+    return false;
+  }
+
+  return arguments1.every(function (argument1) {
+    var argument2 = find(arguments2, function (argument) {
+      return argument.name.value === argument1.name.value;
+    });
+
+    if (!argument2) {
+      return false;
+    }
+
+    return sameValue(argument1.value, argument2.value);
+  });
+}
+
+function sameValue(value1, value2) {
+  return !value1 && !value2 || print(value1) === print(value2);
+} // Two types conflict if both types could not apply to a value simultaneously.
+// Composite types are ignored as their individual field types will be compared
+// later recursively. However List and Non-Null types must match.
+
+
+function doTypesConflict(type1, type2) {
+  if (isListType(type1)) {
+    return isListType(type2) ? doTypesConflict(type1.ofType, type2.ofType) : true;
+  }
+
+  if (isListType(type2)) {
+    return true;
+  }
+
+  if (isNonNullType(type1)) {
+    return isNonNullType(type2) ? doTypesConflict(type1.ofType, type2.ofType) : true;
+  }
+
+  if (isNonNullType(type2)) {
+    return true;
+  }
+
+  if (isLeafType(type1) || isLeafType(type2)) {
+    return type1 !== type2;
+  }
+
+  return false;
+} // Given a selection set, return the collection of fields (a mapping of response
+// name to field nodes and definitions) as well as a list of fragment names
+// referenced via fragment spreads.
+
+
+function getFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, parentType, selectionSet) {
+  var cached = cachedFieldsAndFragmentNames.get(selectionSet);
+
+  if (!cached) {
+    var nodeAndDefs = Object.create(null);
+    var fragmentNames = Object.create(null);
+
+    _collectFieldsAndFragmentNames(context, parentType, selectionSet, nodeAndDefs, fragmentNames);
+
+    cached = [nodeAndDefs, Object.keys(fragmentNames)];
+    cachedFieldsAndFragmentNames.set(selectionSet, cached);
+  }
+
+  return cached;
+} // Given a reference to a fragment, return the represented collection of fields
+// as well as a list of nested fragment names referenced via fragment spreads.
+
+
+function getReferencedFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, fragment) {
+  // Short-circuit building a type from the node if possible.
+  var cached = cachedFieldsAndFragmentNames.get(fragment.selectionSet);
+
+  if (cached) {
+    return cached;
+  }
+
+  var fragmentType = typeFromAST(context.getSchema(), fragment.typeCondition);
+  return getFieldsAndFragmentNames(context, cachedFieldsAndFragmentNames, fragmentType, fragment.selectionSet);
+}
+
+function _collectFieldsAndFragmentNames(context, parentType, selectionSet, nodeAndDefs, fragmentNames) {
+  for (var i = 0; i < selectionSet.selections.length; i++) {
+    var selection = selectionSet.selections[i];
+
+    switch (selection.kind) {
+      case Kind.FIELD:
+        var fieldName = selection.name.value;
+        var fieldDef = void 0;
+
+        if (isObjectType(parentType) || isInterfaceType(parentType)) {
+          fieldDef = parentType.getFields()[fieldName];
+        }
+
+        var responseName = selection.alias ? selection.alias.value : fieldName;
+
+        if (!nodeAndDefs[responseName]) {
+          nodeAndDefs[responseName] = [];
+        }
+
+        nodeAndDefs[responseName].push([parentType, selection, fieldDef]);
+        break;
+
+      case Kind.FRAGMENT_SPREAD:
+        fragmentNames[selection.name.value] = true;
+        break;
+
+      case Kind.INLINE_FRAGMENT:
+        var typeCondition = selection.typeCondition;
+        var inlineFragmentType = typeCondition ? typeFromAST(context.getSchema(), typeCondition) : parentType;
+
+        _collectFieldsAndFragmentNames(context, inlineFragmentType, selection.selectionSet, nodeAndDefs, fragmentNames);
+
+        break;
+    }
+  }
+} // Given a series of Conflicts which occurred between two sub-fields, generate
+// a single Conflict.
+
+
+function subfieldConflicts(conflicts, responseName, node1, node2) {
+  if (conflicts.length > 0) {
+    return [[responseName, conflicts.map(function (_ref6) {
+      var reason = _ref6[0];
+      return reason;
+    })], conflicts.reduce(function (allFields, _ref7) {
+      var fields1 = _ref7[1];
+      return allFields.concat(fields1);
+    }, [node1]), conflicts.reduce(function (allFields, _ref8) {
+      var fields2 = _ref8[2];
+      return allFields.concat(fields2);
+    }, [node2])];
+  }
+}
+/**
+ * A way to keep track of pairs of things when the ordering of the pair does
+ * not matter. We do this by maintaining a sort of double adjacency sets.
+ */
+
+
+var PairSet =
+/*#__PURE__*/
+function () {
+  function PairSet() {
+    this._data = Object.create(null);
+  }
+
+  var _proto = PairSet.prototype;
+
+  _proto.has = function has(a, b, areMutuallyExclusive) {
+    var first = this._data[a];
+    var result = first && first[b];
+
+    if (result === undefined) {
+      return false;
+    } // areMutuallyExclusive being false is a superset of being true,
+    // hence if we want to know if this PairSet "has" these two with no
+    // exclusivity, we have to ensure it was added as such.
+
+
+    if (areMutuallyExclusive === false) {
+      return result === false;
+    }
+
+    return true;
+  };
+
+  _proto.add = function add(a, b, areMutuallyExclusive) {
+    _pairSetAdd(this._data, a, b, areMutuallyExclusive);
+
+    _pairSetAdd(this._data, b, a, areMutuallyExclusive);
+  };
+
+  return PairSet;
+}();
+
+function _pairSetAdd(data, a, b, areMutuallyExclusive) {
+  var map = data[a];
+
+  if (!map) {
+    map = Object.create(null);
+    data[a] = map;
+  }
+
+  map[b] = areMutuallyExclusive;
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -8998,6 +10735,14 @@ function extensionKindToTypeName(kind) {
  *
  * 
  */
+/**
+ * This set includes all validation rules defined by the GraphQL spec.
+ *
+ * The order of the rules in this list has been adjusted to lead to the
+ * most clear output when encountering multiple validation errors.
+ */
+
+var specifiedRules = [ExecutableDefinitions, UniqueOperationNames, LoneAnonymousOperation, SingleFieldSubscriptions, KnownTypeNames, FragmentsOnCompositeTypes, VariablesAreInputTypes, ScalarLeafs, FieldsOnCorrectType, UniqueFragmentNames, KnownFragmentNames, NoUnusedFragments, PossibleFragmentSpreads, NoFragmentCycles, UniqueVariableNames, NoUndefinedVariables, NoUnusedVariables, KnownDirectives, UniqueDirectivesPerLocation, KnownArgumentNames, UniqueArgumentNames, ValuesOfCorrectType, ProvidedRequiredArguments, VariablesInAllowedPosition, OverlappingFieldsCanBeMerged, UniqueInputFieldNames];
 
 var specifiedSDLRules = [LoneSchemaDefinition, UniqueOperationTypes, UniqueTypeNames, UniqueEnumValueNames, UniqueFieldDefinitionNames, UniqueDirectiveNames, KnownTypeNames, KnownDirectives, UniqueDirectivesPerLocation, PossibleTypeExtensions, KnownArgumentNamesOnDirectives, UniqueArgumentNames, UniqueInputFieldNames, ProvidedRequiredArgumentsOnDirectives];
 
@@ -9240,6 +10985,39 @@ function (_ASTValidationContext2) {
  *
  * 
  */
+/**
+ * Implements the "Validation" section of the spec.
+ *
+ * Validation runs synchronously, returning an array of encountered errors, or
+ * an empty array if no errors were encountered and the document is valid.
+ *
+ * A list of specific validation rules may be provided. If not provided, the
+ * default list of rules defined by the GraphQL specification will be used.
+ *
+ * Each validation rules is a function which returns a visitor
+ * (see the language/visitor API). Visitor methods are expected to return
+ * GraphQLErrors, or Arrays of GraphQLErrors when invalid.
+ *
+ * Optionally a custom TypeInfo instance may be provided. If not provided, one
+ * will be created from the provided schema.
+ */
+
+function validate(schema, documentAST) {
+  var rules = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : specifiedRules;
+  var typeInfo = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : new TypeInfo(schema);
+  !documentAST ? invariant(0, 'Must provide document') : void 0; // If the schema used for validation is invalid, throw an error.
+
+  assertValidSchema(schema);
+  var context = new ValidationContext(schema, documentAST, typeInfo); // This uses a specialized visitor which runs multiple visitors in parallel,
+  // while maintaining the visitor skip and break API.
+
+  var visitor = visitInParallel(rules.map(function (rule) {
+    return rule(context);
+  })); // Visit the whole document with each instance of all provided rules.
+
+  visit(documentAST, visitWithTypeInfo(typeInfo, visitor));
+  return context.getErrors();
+} // @internal
 
 function validateSDL(documentAST, schemaToExtend) {
   var rules = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : specifiedSDLRules;
@@ -10823,6 +12601,50 @@ function getFieldDef$1(schema, parentType, fieldName) {
  *
  * 
  */
+function graphql(argsOrSchema, source, rootValue, contextValue, variableValues, operationName, fieldResolver) {
+  var _arguments = arguments;
+  /* eslint-enable no-redeclare */
+  // Always return a Promise for a consistent API.
+
+  return new Promise(function (resolve) {
+    return resolve( // Extract arguments from object args if provided.
+    _arguments.length === 1 ? graphqlImpl(argsOrSchema.schema, argsOrSchema.source, argsOrSchema.rootValue, argsOrSchema.contextValue, argsOrSchema.variableValues, argsOrSchema.operationName, argsOrSchema.fieldResolver) : graphqlImpl(argsOrSchema, source, rootValue, contextValue, variableValues, operationName, fieldResolver));
+  });
+}
+
+function graphqlImpl(schema, source, rootValue, contextValue, variableValues, operationName, fieldResolver) {
+  // Validate Schema
+  var schemaValidationErrors = validateSchema(schema);
+
+  if (schemaValidationErrors.length > 0) {
+    return {
+      errors: schemaValidationErrors
+    };
+  } // Parse
+
+
+  var document;
+
+  try {
+    document = parse(source);
+  } catch (syntaxError) {
+    return {
+      errors: [syntaxError]
+    };
+  } // Validate
+
+
+  var validationErrors = validate(schema, document);
+
+  if (validationErrors.length > 0) {
+    return {
+      errors: validationErrors
+    };
+  } // Execute
+
+
+  return execute(schema, document, rootValue, contextValue, variableValues, operationName, fieldResolver);
+}
 
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -15651,11 +17473,9 @@ var resolvers = {
 
 let gqlSchema;
 
-const handler = async (event, context, callback) => {
-  try {
-    const body = event.body;
-    console.log(event);
-    const gqlSDL = `scalar JSON
+const handler = async (req, res) => {
+  const body = req.body;
+  const gqlSDL = `scalar JSON
 
 type Document {
     key: ID!
@@ -15689,48 +17509,27 @@ type Query {
     documentListBySection(section: String, status: String): DocumentsBySection
     documentByPath(path: String): Document
 }
- `;
-    const bodyJSON = JSON.parse(body);
-    console.log(bodyJSON);
+`;
 
-    if (!bodyJSON.query) {
-      const response = {
-        statusCode: 400,
-        body: JSON.stringify('No query specified')
-      };
-      callback(null, response);
-    } else {
-      if (!gqlSchema) {
-        console.log('Init Schema');
-        gqlSchema = buildSchema(gqlSDL);
-      } // const bodyJSON = JSON.parse(body)
-      // console.log(bodyJSON)
-
-
-      const {
-        query,
-        variables
-      } = bodyJSON;
-      const queryDoc = parse(query);
-
-      if (queryDoc) {
-        const gqlContext = event.header || null;
-        const gqlResponse = await execute(gqlSchema, queryDoc, resolvers, gqlContext, variables);
-        const response = {
-          statusCode: 200,
-          body: JSON.stringify(gqlResponse)
-        };
-        callback(null, response);
-      } else {
-        const response = {
-          statusCode: 400,
-          body: `GraphQL query not valid: ${query}`
-        };
-        callback(null, response);
-      }
-    }
-  } catch (error) {
-    console.log(error);
+  if (!body.query) {
+    const response = {
+      statusCode: 400,
+      body: JSON.stringify('No query specified')
+    };
+    res.send(response);
+  } else {
+    if (!gqlSchema) gqlSchema = buildSchema(gqlSDL);
+    const {
+      query,
+      variables
+    } = body;
+    const authToken = req.get('Authorization');
+    const context = authToken ? {
+      authToken
+    } : false;
+    const response = await graphql(gqlSchema, query, resolvers, context, variables, null);
+    console.log(response);
+    res.status(200).json(response);
   }
 };
 

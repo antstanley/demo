@@ -10,7 +10,8 @@
     "build:nuxt": "nuxt build --spa",
     "build:autographql": "autographql bundle -c ./autographql.config.json",
     "build": "npm run build:nuxt && npm run build:autographql",
-    "start": "nuxt start"
+    "start": "nuxt start",
+    "deploy:google": "npm run build:autographql && gcloud functions deploy demo-api --entry-point handler --memory 2048MB --runtime nodejs8 --source ./dist/gcp --trigger-http"
   },
   "author": "",
   "license": "ISC",
