@@ -1,0 +1,36 @@
+{
+  "name": "demo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev:nuxt": "nuxt",
+    "dev:autographql": "autographql dev -c ./autographql.config.json",
+    "dev": "concurrently \"npm run dev:nuxt\" \"npm run dev:autographql\"",
+    "build:nuxt": "nuxt build --spa",
+    "build:autographql": "autographql bundle -c ./autographql.config.json",
+    "build": "npm run build:nuxt && npm run build:autographql",
+    "start": "nuxt start"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "autographql": "^0.1.1",
+    "@nuxtjs/apollo": "^4.0.0-rc2.3",
+    "@vue/cli-shared-utils": "^3.3.0",
+    "core-js": "^2.6.3",
+    "graphql-tag": "^2.10.1",
+    "markdown-it": "^8.4.2",
+    "nuxt": "^2.3.4",
+    "object-keys": "^1.0.12",
+    "prismjs": "^1.15.0",
+    "tachyons": "^4.11.1",
+    "yaml-front-matter": "^4.0.0"
+  },
+  "devDependencies": {
+    "@babel/plugin-syntax-import-meta": "^7.2.0",
+    "concurrently": "^4.1.0",
+    "glob-all": "^3.1.0",
+    "purgecss-webpack-plugin": "^1.4.0"
+  }
+}

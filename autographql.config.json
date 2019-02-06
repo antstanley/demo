@@ -1,0 +1,15 @@
+{
+    "name": "modDev",
+    "schema": "./src/backend/graphql/schema/schema.gql",
+    "resolvers": "./src/backend/graphql/resolvers",
+    "external": "data",
+    "providers": [
+        {
+            "name": "netlify",
+            "dist": "./dist/graphql"
+        }
+    ],
+    "dev": {
+        "port": 7000
+    }
+}

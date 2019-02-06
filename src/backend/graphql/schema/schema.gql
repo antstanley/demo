@@ -1,0 +1,34 @@
+scalar JSON
+
+type Document {
+    key: ID!
+    name: String!
+    description: String
+    status: String
+    markdown: String!
+    frontmatter: JSON
+    path: String!
+}
+
+type Section {
+    key: ID!
+    name: String!
+    description: String
+    path: String!
+    status: String!
+    isNav: Boolean
+}
+
+type DocumentsBySection {
+    key: ID!
+    name: String!
+    description: String
+    status: String
+    document: [Document]
+}
+
+type Query {
+    allSections(status: String): [Section]
+    documentListBySection(section: String, status: String): DocumentsBySection
+    documentByPath(path: String): Document
+}
