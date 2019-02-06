@@ -15,9 +15,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "autographql": "^0.1.1",
     "@nuxtjs/apollo": "^4.0.0-rc2.3",
     "@vue/cli-shared-utils": "^3.3.0",
+    "autographql": "^0.1.2",
     "core-js": "^2.6.3",
     "graphql-tag": "^2.10.1",
     "markdown-it": "^8.4.2",
