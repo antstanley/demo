@@ -33,7 +33,7 @@ export default (ctx, inject) => {
       let defaultClientConfig
 
         defaultClientConfig = {
-  "httpEndpoint": "http://localhost:7000"
+  "httpEndpoint": "https://fervent-borg-084880.netlify.com/.netlify/functions/index"
 }
 
       const defaultValidateToken = () => true

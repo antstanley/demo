@@ -32,7 +32,8 @@ module.exports = {
     tokenName: 'id_token',
     clientConfigs: {
       default: {
-        httpEndpoint: 'http://localhost:7000'
+        httpEndpoint:
+          'https://fervent-borg-084880.netlify.com/.netlify/functions/index'
       }
     }
   }
