@@ -16,22 +16,24 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nuxtjs/apollo": "^4.0.0-rc2.3",
-    "@vue/cli-shared-utils": "^3.3.0",
-    "autographql": "^0.1.4",
-    "core-js": "^2.6.3",
+    "@nuxtjs/apollo": "^4.0.0-rc4.1",
+    "@vue/cli-shared-utils": "^3.7.0",
+    "autographql": "^0.1.14",
+    "core-js": "^2.6.5",
     "graphql-tag": "^2.10.1",
     "markdown-it": "^8.4.2",
-    "nuxt": "^2.3.4",
-    "object-keys": "^1.0.12",
-    "prismjs": "^1.15.0",
+    "node-fetch": "^2.5.0",
+    "nuxt": "^2.7.1",
+    "object-keys": "^1.1.1",
+    "prismjs": "^1.16.0",
     "tachyons": "^4.11.1",
     "yaml-front-matter": "^4.0.0"
   },
   "devDependencies": {
+    "@babel/plugin-syntax-dynamic-import": "^7.2.0",
     "@babel/plugin-syntax-import-meta": "^7.2.0",
     "concurrently": "^4.1.0",
     "glob-all": "^3.1.0",
-    "purgecss-webpack-plugin": "^1.4.0"
+    "purgecss-webpack-plugin": "^1.5.0"
   }
 }

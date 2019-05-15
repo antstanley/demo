@@ -6,7 +6,7 @@ var fs = require('fs');
 var path = require('path');
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -29,7 +29,37 @@ var find = Array.prototype.find ? function (list, predicate) {
 };
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * 
+ */
+
+/* eslint-disable no-redeclare */
+// $FlowFixMe
+var flatMap = Array.prototype.flatMap ? function (list, fn) {
+  // $FlowFixMe
+  return Array.prototype.flatMap.call(list, fn);
+} : function (list, fn) {
+  var result = [];
+
+  for (var i = 0; i < list.length; i++) {
+    var value = fn(list[i]);
+
+    if (Array.isArray(value)) {
+      result = result.concat(value);
+    } else {
+      result.push(value);
+    }
+  }
+
+  return result;
+};
+
+/**
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -46,7 +76,7 @@ var objectValues = Object.values || function (obj) {
 };
 
 /**
- * Copyright (c) 2019-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -63,7 +93,7 @@ var objectEntries = Object.entries || function (obj) {
 };
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -73,7 +103,7 @@ var objectEntries = Object.entries || function (obj) {
 var nodejsCustomInspectSymbol = typeof Symbol === 'function' ? Symbol.for('nodejs.util.inspect.custom') : undefined;
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -97,7 +127,7 @@ classObject) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -129,7 +159,7 @@ function defineToStringTag(classObject) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -177,11 +207,17 @@ function _typeof(obj) {
 
   return _typeof(obj);
 }
+var MAX_ARRAY_LENGTH = 10;
+var MAX_RECURSIVE_DEPTH = 2;
 /**
  * Used to print values in error messages.
  */
 
 function inspect(value) {
+  return formatValue(value, []);
+}
+
+function formatValue(value, seenValues) {
   switch (_typeof(value)) {
     case 'string':
       return JSON.stringify(value);
@@ -190,28 +226,82 @@ function inspect(value) {
       return value.name ? "[function ".concat(value.name, "]") : '[function]';
 
     case 'object':
-      if (value) {
-        var customInspectFn = getCustomFn(value);
-
-        if (customInspectFn) {
-          // $FlowFixMe(>=0.90.0)
-          var customValue = customInspectFn.call(value);
-          return typeof customValue === 'string' ? customValue : inspect(customValue);
-        } else if (Array.isArray(value)) {
-          return '[' + value.map(inspect).join(', ') + ']';
-        }
-
-        var properties = Object.keys(value).map(function (k) {
-          return "".concat(k, ": ").concat(inspect(value[k]));
-        }).join(', ');
-        return properties ? '{ ' + properties + ' }' : '{}';
-      }
-
-      return String(value);
+      return formatObjectValue(value, seenValues);
 
     default:
       return String(value);
   }
+}
+
+function formatObjectValue(value, previouslySeenValues) {
+  if (previouslySeenValues.indexOf(value) !== -1) {
+    return '[Circular]';
+  }
+
+  var seenValues = [].concat(previouslySeenValues, [value]);
+
+  if (value) {
+    var customInspectFn = getCustomFn(value);
+
+    if (customInspectFn) {
+      // $FlowFixMe(>=0.90.0)
+      var customValue = customInspectFn.call(value); // check for infinite recursion
+
+      if (customValue !== value) {
+        return typeof customValue === 'string' ? customValue : formatValue(customValue, seenValues);
+      }
+    } else if (Array.isArray(value)) {
+      return formatArray(value, seenValues);
+    }
+
+    return formatObject(value, seenValues);
+  }
+
+  return String(value);
+}
+
+function formatObject(object, seenValues) {
+  var keys = Object.keys(object);
+
+  if (keys.length === 0) {
+    return '{}';
+  }
+
+  if (seenValues.length > MAX_RECURSIVE_DEPTH) {
+    return '[' + getObjectTag(object) + ']';
+  }
+
+  var properties = keys.map(function (key) {
+    var value = formatValue(object[key], seenValues);
+    return key + ': ' + value;
+  });
+  return '{ ' + properties.join(', ') + ' }';
+}
+
+function formatArray(array, seenValues) {
+  if (array.length === 0) {
+    return '[]';
+  }
+
+  if (seenValues.length > MAX_RECURSIVE_DEPTH) {
+    return '[Array]';
+  }
+
+  var len = Math.min(MAX_ARRAY_LENGTH, array.length);
+  var remaining = array.length - len;
+  var items = [];
+
+  for (var i = 0; i < len; ++i) {
+    items.push(formatValue(array[i], seenValues));
+  }
+
+  if (remaining === 1) {
+    items.push('... 1 more item');
+  } else if (remaining > 1) {
+    items.push("... ".concat(remaining, " more items"));
+  }
+
+  return '[' + items.join(', ') + ']';
 }
 
 function getCustomFn(object) {
@@ -226,8 +316,22 @@ function getCustomFn(object) {
   }
 }
 
+function getObjectTag(object) {
+  var tag = Object.prototype.toString.call(object).replace(/^\[object /, '').replace(/]$/, '');
+
+  if (tag === 'Object' && typeof object.constructor === 'function') {
+    var name = object.constructor.name;
+
+    if (typeof name === 'string') {
+      return name;
+    }
+  }
+
+  return tag;
+}
+
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -242,7 +346,7 @@ function invariant(condition, message) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -280,7 +384,39 @@ function keyMap(list, keyFn) {
 }
 
 /**
- * Copyright (c) 2019-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * 
+ */
+
+/**
+ * Creates a keyed JS object from an array, given a function to produce the keys
+ * and a function to produce the values from each item in the array.
+ *
+ *     const phoneBook = [
+ *       { name: 'Jon', num: '555-1234' },
+ *       { name: 'Jenny', num: '867-5309' }
+ *     ]
+ *
+ *     // { Jon: '555-1234', Jenny: '867-5309' }
+ *     const phonesByName = keyValMap(
+ *       phoneBook,
+ *       entry => entry.name,
+ *       entry => entry.num
+ *     )
+ *
+ */
+function keyValMap(list, keyFn, valFn) {
+  return list.reduce(function (map, item) {
+    return map[keyFn(item)] = valFn(item), map;
+  }, Object.create(null));
+}
+
+/**
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -324,7 +460,7 @@ function mapValue(map, fn) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -396,39 +532,7 @@ var Kind = Object.freeze({
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- *
- * 
- */
-
-/**
- * Creates a keyed JS object from an array, given a function to produce the keys
- * and a function to produce the values from each item in the array.
- *
- *     const phoneBook = [
- *       { name: 'Jon', num: '555-1234' },
- *       { name: 'Jenny', num: '867-5309' }
- *     ]
- *
- *     // { Jon: '555-1234', Jenny: '867-5309' }
- *     const phonesByName = keyValMap(
- *       phoneBook,
- *       entry => entry.name,
- *       entry => entry.num
- *     )
- *
- */
-function keyValMap(list, keyFn, valFn) {
-  return list.reduce(function (map, item) {
-    return map[keyFn(item)] = valFn(item), map;
-  }, Object.create(null));
-}
-
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -444,7 +548,7 @@ function isInvalid(value) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -499,11 +603,12 @@ function valueFromASTUntyped(valueNode, variables) {
     case Kind.VARIABLE:
       var variableName = valueNode.name.value;
       return variables && !isInvalid(variables[variableName]) ? variables[variableName] : undefined;
-  }
+  } // Not reachable. All possible value nodes have been considered.
+
   /* istanbul ignore next */
 
 
-  throw new Error('Unexpected value kind: ' + valueNode.kind);
+  throw new Error("Unexpected value node: \"".concat(inspect(valueNode), "\"."));
 }
 
 function _typeof$1(obj) {
@@ -661,8 +766,10 @@ function GraphQLList(ofType) {
 
 GraphQLList.prototype.toString = function toString() {
   return '[' + String(this.ofType) + ']';
-};
+}; // Conditionally apply `[Symbol.toStringTag]` if `Symbol`s are supported
 
+
+defineToStringTag(GraphQLList);
 defineToJSON(GraphQLList);
 /**
  * Non-Null Type Wrapper
@@ -696,8 +803,10 @@ function GraphQLNonNull(ofType) {
 
 GraphQLNonNull.prototype.toString = function toString() {
   return String(this.ofType) + '!';
-};
+}; // Conditionally apply `[Symbol.toStringTag]` if `Symbol`s are supported
 
+
+defineToStringTag(GraphQLNonNull);
 defineToJSON(GraphQLNonNull);
 /**
  * These types wrap and modify other types
@@ -755,6 +864,10 @@ function resolveThunk(thunk) {
   // $FlowFixMe(>=0.90.0)
   return typeof thunk === 'function' ? thunk() : thunk;
 }
+
+function undefineIfEmpty(arr) {
+  return arr && arr.length > 0 ? arr : undefined;
+}
 /**
  * Scalar Type Definition
  *
@@ -795,7 +908,7 @@ function () {
 
     this.parseLiteral = config.parseLiteral || valueFromASTUntyped;
     this.astNode = config.astNode;
-    this.extensionASTNodes = config.extensionASTNodes;
+    this.extensionASTNodes = undefineIfEmpty(config.extensionASTNodes);
     !(typeof config.name === 'string') ? invariant(0, 'Must provide name.') : void 0;
     !(typeof config.serialize === 'function') ? invariant(0, "".concat(this.name, " must provide \"serialize\" function. If this custom Scalar ") + 'is also used as an input type, ensure "parseValue" and "parseLiteral" ' + 'functions are also provided.') : void 0;
 
@@ -805,6 +918,18 @@ function () {
   }
 
   var _proto = GraphQLScalarType.prototype;
+
+  _proto.toConfig = function toConfig() {
+    return {
+      name: this.name,
+      description: this.description,
+      serialize: this.serialize,
+      parseValue: this.parseValue,
+      parseLiteral: this.parseLiteral,
+      astNode: this.astNode,
+      extensionASTNodes: this.extensionASTNodes || []
+    };
+  };
 
   _proto.toString = function toString() {
     return this.name;
@@ -860,7 +985,7 @@ function () {
     this.name = config.name;
     this.description = config.description;
     this.astNode = config.astNode;
-    this.extensionASTNodes = config.extensionASTNodes;
+    this.extensionASTNodes = undefineIfEmpty(config.extensionASTNodes);
     this.isTypeOf = config.isTypeOf;
     this._fields = defineFieldMap.bind(undefined, config);
     this._interfaces = defineInterfaces.bind(undefined, config);
@@ -884,6 +1009,18 @@ function () {
     }
 
     return this._interfaces;
+  };
+
+  _proto2.toConfig = function toConfig() {
+    return {
+      name: this.name,
+      description: this.description,
+      isTypeOf: this.isTypeOf,
+      interfaces: this.getInterfaces(),
+      fields: fieldsToFieldsConfig(this.getFields()),
+      astNode: this.astNode,
+      extensionASTNodes: this.extensionASTNodes || []
+    };
   };
 
   _proto2.toString = function toString() {
@@ -934,6 +1071,32 @@ function isPlainObj(obj) {
   return obj && _typeof$1(obj) === 'object' && !Array.isArray(obj);
 }
 
+function fieldsToFieldsConfig(fields) {
+  return mapValue(fields, function (field) {
+    return {
+      type: field.type,
+      args: argsToArgsConfig(field.args),
+      resolve: field.resolve,
+      subscribe: field.subscribe,
+      deprecationReason: field.deprecationReason,
+      description: field.description,
+      astNode: field.astNode
+    };
+  });
+}
+
+function argsToArgsConfig(args) {
+  return keyValMap(args, function (arg) {
+    return arg.name;
+  }, function (arg) {
+    return {
+      type: arg.type,
+      defaultValue: arg.defaultValue,
+      description: arg.description,
+      astNode: arg.astNode
+    };
+  });
+}
 function isRequiredArgument(arg) {
   return isNonNullType(arg.type) && arg.defaultValue === undefined;
 }
@@ -963,7 +1126,7 @@ function () {
     this.name = config.name;
     this.description = config.description;
     this.astNode = config.astNode;
-    this.extensionASTNodes = config.extensionASTNodes;
+    this.extensionASTNodes = undefineIfEmpty(config.extensionASTNodes);
     this.resolveType = config.resolveType;
     this._fields = defineFieldMap.bind(undefined, config);
     !(typeof config.name === 'string') ? invariant(0, 'Must provide name.') : void 0;
@@ -978,6 +1141,17 @@ function () {
     }
 
     return this._fields;
+  };
+
+  _proto3.toConfig = function toConfig() {
+    return {
+      name: this.name,
+      description: this.description,
+      resolveType: this.resolveType,
+      fields: fieldsToFieldsConfig(this.getFields()),
+      astNode: this.astNode,
+      extensionASTNodes: this.extensionASTNodes || []
+    };
   };
 
   _proto3.toString = function toString() {
@@ -1020,7 +1194,7 @@ function () {
     this.name = config.name;
     this.description = config.description;
     this.astNode = config.astNode;
-    this.extensionASTNodes = config.extensionASTNodes;
+    this.extensionASTNodes = undefineIfEmpty(config.extensionASTNodes);
     this.resolveType = config.resolveType;
     this._types = defineTypes.bind(undefined, config);
     !(typeof config.name === 'string') ? invariant(0, 'Must provide name.') : void 0;
@@ -1035,6 +1209,17 @@ function () {
     }
 
     return this._types;
+  };
+
+  _proto4.toConfig = function toConfig() {
+    return {
+      name: this.name,
+      description: this.description,
+      resolveType: this.resolveType,
+      types: this.getTypes(),
+      astNode: this.astNode,
+      extensionASTNodes: this.extensionASTNodes || []
+    };
   };
 
   _proto4.toString = function toString() {
@@ -1086,7 +1271,7 @@ function () {
     this.name = config.name;
     this.description = config.description;
     this.astNode = config.astNode;
-    this.extensionASTNodes = config.extensionASTNodes;
+    this.extensionASTNodes = undefineIfEmpty(config.extensionASTNodes);
     this._values = defineEnumValues(this, config.values);
     this._valueLookup = new Map(this._values.map(function (enumValue) {
       return [enumValue.value, enumValue];
@@ -1140,6 +1325,26 @@ function () {
         return enumValue.value;
       }
     }
+  };
+
+  _proto5.toConfig = function toConfig() {
+    var values = keyValMap(this.getValues(), function (value) {
+      return value.name;
+    }, function (value) {
+      return {
+        description: value.description,
+        value: value.value,
+        deprecationReason: value.deprecationReason,
+        astNode: value.astNode
+      };
+    });
+    return {
+      name: this.name,
+      description: this.description,
+      values: values,
+      astNode: this.astNode,
+      extensionASTNodes: this.extensionASTNodes || []
+    };
   };
 
   _proto5.toString = function toString() {
@@ -1200,7 +1405,7 @@ function () {
     this.name = config.name;
     this.description = config.description;
     this.astNode = config.astNode;
-    this.extensionASTNodes = config.extensionASTNodes;
+    this.extensionASTNodes = undefineIfEmpty(config.extensionASTNodes);
     this._fields = defineInputFieldMap.bind(undefined, config);
     !(typeof config.name === 'string') ? invariant(0, 'Must provide name.') : void 0;
   }
@@ -1213,6 +1418,24 @@ function () {
     }
 
     return this._fields;
+  };
+
+  _proto6.toConfig = function toConfig() {
+    var fields = mapValue(this.getFields(), function (field) {
+      return {
+        description: field.description,
+        type: field.type,
+        defaultValue: field.defaultValue,
+        astNode: field.astNode
+      };
+    });
+    return {
+      name: this.name,
+      description: this.description,
+      fields: fields,
+      astNode: this.astNode,
+      extensionASTNodes: this.extensionASTNodes || []
+    };
   };
 
   _proto6.toString = function toString() {
@@ -1241,7 +1464,7 @@ function isRequiredInputField(field) {
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -1256,7 +1479,7 @@ var isFinite$1 = Number.isFinite || function (value) {
 };
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -1505,7 +1728,7 @@ var GraphQLID = new GraphQLScalarType({
 var specifiedScalarTypes = [GraphQLString, GraphQLInt, GraphQLFloat, GraphQLBoolean, GraphQLID];
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -1598,6 +1821,16 @@ function () {
 
   _proto.toString = function toString() {
     return '@' + this.name;
+  };
+
+  _proto.toConfig = function toConfig() {
+    return {
+      name: this.name,
+      description: this.description,
+      locations: this.locations,
+      args: argsToArgsConfig(this.args),
+      astNode: this.astNode
+    };
   };
 
   return GraphQLDirective;
@@ -1987,7 +2220,7 @@ function forEach(collection, callback, thisArg) {
 var SYMBOL_ASYNC_ITERATOR = SYMBOL && SYMBOL.asyncIterator;
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -2129,7 +2362,7 @@ function astFromValue(value, type) {
     };
   }
 
-  if (isScalarType(type) || isEnumType(type)) {
+  if (isLeafType(type)) {
     // Since value is an internally represented value, it must be serialized
     // to an externally represented value before converting into an AST.
     var serialized = type.serialize(value);
@@ -2182,11 +2415,12 @@ function astFromValue(value, type) {
     }
 
     throw new TypeError("Cannot convert value to AST: ".concat(inspect(serialized)));
-  }
+  } // Not reachable. All possible input types have been considered.
+
   /* istanbul ignore next */
 
 
-  throw new Error("Unknown type: ".concat(type, "."));
+  throw new Error("Unexpected input type: \"".concat(inspect(type), "\"."));
 }
 /**
  * IntValue:
@@ -2194,10 +2428,10 @@ function astFromValue(value, type) {
  *   - NegativeSign? NonZeroDigit ( Digit+ )?
  */
 
-var integerStringRegExp = /^-?(0|[1-9][0-9]*)$/;
+var integerStringRegExp = /^-?(?:0|[1-9][0-9]*)$/;
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -2372,10 +2606,8 @@ function visit(root, visitor) {
         } else {
           var clone = {};
 
-          var _arr = Object.keys(node);
-
-          for (var _i = 0; _i < _arr.length; _i++) {
-            var k = _arr[_i];
+          for (var _i = 0, _Object$keys = Object.keys(node); _i < _Object$keys.length; _i++) {
+            var k = _Object$keys[_i];
             clone[k] = node[k];
           }
 
@@ -2629,7 +2861,112 @@ function getVisitFn(visitor, kind, isLeaving) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * 
+ */
+
+/**
+ * Produces the value of a block string from its parsed raw value, similar to
+ * CoffeeScript's block string, Python's docstring trim or Ruby's strip_heredoc.
+ *
+ * This implements the GraphQL spec's BlockStringValue() static algorithm.
+ */
+function dedentBlockStringValue(rawString) {
+  // Expand a block string's raw value into independent lines.
+  var lines = rawString.split(/\r\n|[\n\r]/g); // Remove common indentation from all lines but first.
+
+  var commonIndent = getBlockStringIndentation(lines);
+
+  if (commonIndent !== 0) {
+    for (var i = 1; i < lines.length; i++) {
+      lines[i] = lines[i].slice(commonIndent);
+    }
+  } // Remove leading and trailing blank lines.
+
+
+  while (lines.length > 0 && isBlank(lines[0])) {
+    lines.shift();
+  }
+
+  while (lines.length > 0 && isBlank(lines[lines.length - 1])) {
+    lines.pop();
+  } // Return a string of the lines joined with U+000A.
+
+
+  return lines.join('\n');
+} // @internal
+
+function getBlockStringIndentation(lines) {
+  var commonIndent = null;
+
+  for (var i = 1; i < lines.length; i++) {
+    var line = lines[i];
+    var indent = leadingWhitespace(line);
+
+    if (indent === line.length) {
+      continue; // skip empty lines
+    }
+
+    if (commonIndent === null || indent < commonIndent) {
+      commonIndent = indent;
+
+      if (commonIndent === 0) {
+        break;
+      }
+    }
+  }
+
+  return commonIndent === null ? 0 : commonIndent;
+}
+
+function leadingWhitespace(str) {
+  var i = 0;
+
+  while (i < str.length && (str[i] === ' ' || str[i] === '\t')) {
+    i++;
+  }
+
+  return i;
+}
+
+function isBlank(str) {
+  return leadingWhitespace(str) === str.length;
+}
+/**
+ * Print a block string in the indented block form by adding a leading and
+ * trailing blank line. However, if a block string starts with whitespace and is
+ * a single-line, adding a leading blank line would strip that whitespace.
+ */
+
+
+function printBlockString(value) {
+  var indentation = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : '';
+  var preferMultipleLines = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
+  var isSingleLine = value.indexOf('\n') === -1;
+  var hasLeadingSpace = value[0] === ' ' || value[0] === '\t';
+  var hasTrailingQuote = value[value.length - 1] === '"';
+  var printAsMultipleLines = !isSingleLine || hasTrailingQuote || preferMultipleLines;
+  var result = ''; // Format a multi-line block quote to account for leading space.
+
+  if (printAsMultipleLines && !(isSingleLine && hasLeadingSpace)) {
+    result += '\n' + indentation;
+  }
+
+  result += indentation ? value.replace(/\n/g, '\n' + indentation) : value;
+
+  if (printAsMultipleLines) {
+    result += '\n';
+  }
+
+  return '"""' + result.replace(/"""/g, '\\"""') + '"""';
+}
+
+/**
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -2645,7 +2982,8 @@ function print(ast) {
   return visit(ast, {
     leave: printDocASTReducer
   });
-}
+} // TODO: provide better type coverage in future
+
 var printDocASTReducer = {
   Name: function Name(node) {
     return node.value;
@@ -2726,7 +3064,7 @@ var printDocASTReducer = {
   StringValue: function StringValue(_ref10, key) {
     var value = _ref10.value,
         isBlockString = _ref10.block;
-    return isBlockString ? printBlockString(value, key === 'description') : JSON.stringify(value);
+    return isBlockString ? printBlockString(value, key === 'description' ? '' : '  ') : JSON.stringify(value);
   },
   BooleanValue: function BooleanValue(_ref11) {
     var value = _ref11.value;
@@ -2932,20 +3270,9 @@ function isMultiline(string) {
 function hasMultilineItems(maybeArray) {
   return maybeArray && maybeArray.some(isMultiline);
 }
-/**
- * Print a block string in the indented block form by adding a leading and
- * trailing blank line. However, if a block string starts with whitespace and is
- * a single-line, adding a leading blank line would strip that whitespace.
- */
-
-
-function printBlockString(value, isDescription) {
-  var escaped = value.replace(/"""/g, '\\"""');
-  return isMultiline(value) || value[0] !== ' ' && value[0] !== '\t' ? "\"\"\"\n".concat(isDescription ? escaped : indent(escaped), "\n\"\"\"") : "\"\"\"".concat(escaped.replace(/"$/, '"\n'), "\"\"\"");
-}
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -3133,9 +3460,12 @@ var __Type = new GraphQLObjectType({
             return TypeKind.LIST;
           } else if (isNonNullType(type)) {
             return TypeKind.NON_NULL;
-          }
+          } // Not reachable. All possible types have been considered.
 
-          throw new Error('Unknown kind of type: ' + type);
+          /* istanbul ignore next */
+
+
+          throw new Error("Unexpected type: \"".concat(inspect(type), "\"."));
         }
       },
       name: {
@@ -3306,7 +3636,8 @@ var __InputValue = new GraphQLObjectType({
         type: GraphQLString,
         description: 'A GraphQL-formatted string representing the default value for this ' + 'input value.',
         resolve: function resolve(inputVal) {
-          return isInvalid(inputVal.defaultValue) ? null : print(astFromValue(inputVal.defaultValue, inputVal.type));
+          var valueAST = astFromValue(inputVal.defaultValue, inputVal.type);
+          return valueAST ? print(valueAST) : null;
         }
       }
     };
@@ -3433,9 +3764,10 @@ var TypeNameMetaFieldDef = {
 };
 var introspectionTypes = [__Schema, __Directive, __DirectiveLocation, __Type, __Field, __InputValue, __EnumValue, __TypeKind];
 function isIntrospectionType(type) {
-  return isNamedType(type) && ( // Would prefer to use introspectionTypes.some(), however %checks needs
-  // a simple expression.
-  type.name === __Schema.name || type.name === __Directive.name || type.name === __DirectiveLocation.name || type.name === __Type.name || type.name === __Field.name || type.name === __InputValue.name || type.name === __EnumValue.name || type.name === __TypeKind.name);
+  return isNamedType(type) && introspectionTypes.some(function (_ref8) {
+    var name = _ref8.name;
+    return type.name === name;
+  });
 }
 
 function _typeof$5(obj) {
@@ -3471,6 +3803,43 @@ function assertSchema(schema) {
  *     const MyAppSchema = new GraphQLSchema({
  *       query: MyAppQueryRootType,
  *       mutation: MyAppMutationRootType,
+ *     })
+ *
+ * Note: When the schema is constructed, by default only the types that are
+ * reachable by traversing the root types are included, other types must be
+ * explicitly referenced.
+ *
+ * Example:
+ *
+ *     const characterInterface = new GraphQLInterfaceType({
+ *       name: 'Character',
+ *       ...
+ *     });
+ *
+ *     const humanType = new GraphQLObjectType({
+ *       name: 'Human',
+ *       interfaces: [characterInterface],
+ *       ...
+ *     });
+ *
+ *     const droidType = new GraphQLObjectType({
+ *       name: 'Droid',
+ *       interfaces: [characterInterface],
+ *       ...
+ *     });
+ *
+ *     const schema = new GraphQLSchema({
+ *       query: new GraphQLObjectType({
+ *         name: 'Query',
+ *         fields: {
+ *           hero: { type: characterInterface, ... },
+ *         }
+ *       }),
+ *       ...
+ *       // Since this schema references only the `Character` interface it's
+ *       // necessary to explicitly list the types that implement it if
+ *       // you want them to be included in the final schema.
+ *       types: [humanType, droidType],
  *     })
  *
  * Note: If an array of `directives` are provided to GraphQLSchema, that will be
@@ -3647,6 +4016,20 @@ function () {
     });
   };
 
+  _proto.toConfig = function toConfig() {
+    return {
+      types: objectValues(this.getTypeMap()),
+      directives: this.getDirectives().slice(),
+      query: this.getQueryType(),
+      mutation: this.getMutationType(),
+      subscription: this.getSubscriptionType(),
+      astNode: this.astNode,
+      extensionASTNodes: this.extensionASTNodes || [],
+      assumeValid: this.__validationErrors !== undefined,
+      allowedLegacyNames: this.__allowedLegacyNames
+    };
+  };
+
   return GraphQLSchema;
 }(); // Conditionally apply `[Symbol.toStringTag]` if `Symbol`s are supported
 
@@ -3662,7 +4045,7 @@ function typeMapReducer(map, type) {
   }
 
   if (map[type.name]) {
-    !(map[type.name] === type) ? invariant(0, 'Schema must contain unique named types but contains multiple ' + "types named \"".concat(type.name, "\".")) : void 0;
+    !(map[type.name] === type) ? invariant(0, 'Schema must contain uniquely named types but contains multiple ' + "types named \"".concat(type.name, "\".")) : void 0;
     return map;
   }
 
@@ -3752,7 +4135,7 @@ function typeMapDirectiveReducer(map, directive) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -3786,7 +4169,7 @@ function getLocation(source, position) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -3923,13 +4306,20 @@ function lpad(len, str) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
  * 
  */
+/**
+ * A GraphQLError describes an Error found during the parse, validate, or
+ * execute phases of performing a GraphQL operation. In addition to a message
+ * and stack trace, it also includes information about the locations in a
+ * GraphQL document and/or execution result that correspond to the Error.
+ */
+
 function GraphQLError( // eslint-disable-line no-redeclare
 message, nodes, source, positions, path$$1, originalError, extensions) {
   // Compute list of blame nodes.
@@ -4058,7 +4448,7 @@ GraphQLError.prototype = Object.create(Error.prototype, {
 });
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -4083,7 +4473,7 @@ function isValidNameError(name, node) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -4200,7 +4590,7 @@ function doTypesOverlap(schema, typeA, typeB) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -4260,7 +4650,7 @@ function () {
   var _proto = SchemaValidationContext.prototype;
 
   _proto.reportError = function reportError(message, nodes) {
-    var _nodes = (Array.isArray(nodes) ? nodes : [nodes]).filter(Boolean);
+    var _nodes = Array.isArray(nodes) ? nodes.filter(Boolean) : nodes;
 
     this.addError(new GraphQLError(message, _nodes));
   };
@@ -4840,39 +5230,9 @@ function getAllNodes(object) {
 }
 
 function getAllSubNodes(object, getter) {
-  var result = [];
-  var _iteratorNormalCompletion14 = true;
-  var _didIteratorError14 = false;
-  var _iteratorError14 = undefined;
-
-  try {
-    for (var _iterator14 = getAllNodes(object)[Symbol.iterator](), _step14; !(_iteratorNormalCompletion14 = (_step14 = _iterator14.next()).done); _iteratorNormalCompletion14 = true) {
-      var astNode = _step14.value;
-
-      if (astNode) {
-        var subNodes = getter(astNode);
-
-        if (subNodes) {
-          result = result.concat(subNodes);
-        }
-      }
-    }
-  } catch (err) {
-    _didIteratorError14 = true;
-    _iteratorError14 = err;
-  } finally {
-    try {
-      if (!_iteratorNormalCompletion14 && _iterator14.return != null) {
-        _iterator14.return();
-      }
-    } finally {
-      if (_didIteratorError14) {
-        throw _iteratorError14;
-      }
-    }
-  }
-
-  return result;
+  return flatMap(getAllNodes(object), function (item) {
+    return getter(item) || [];
+  });
 }
 
 function getImplementsInterfaceNode(type, iface) {
@@ -4909,29 +5269,29 @@ function getAllFieldArgNodes(type, fieldName, argName) {
   var fieldNode = getFieldNode(type, fieldName);
 
   if (fieldNode && fieldNode.arguments) {
-    var _iteratorNormalCompletion15 = true;
-    var _didIteratorError15 = false;
-    var _iteratorError15 = undefined;
+    var _iteratorNormalCompletion14 = true;
+    var _didIteratorError14 = false;
+    var _iteratorError14 = undefined;
 
     try {
-      for (var _iterator15 = fieldNode.arguments[Symbol.iterator](), _step15; !(_iteratorNormalCompletion15 = (_step15 = _iterator15.next()).done); _iteratorNormalCompletion15 = true) {
-        var node = _step15.value;
+      for (var _iterator14 = fieldNode.arguments[Symbol.iterator](), _step14; !(_iteratorNormalCompletion14 = (_step14 = _iterator14.next()).done); _iteratorNormalCompletion14 = true) {
+        var node = _step14.value;
 
         if (node.name.value === argName) {
           argNodes.push(node);
         }
       }
     } catch (err) {
-      _didIteratorError15 = true;
-      _iteratorError15 = err;
+      _didIteratorError14 = true;
+      _iteratorError14 = err;
     } finally {
       try {
-        if (!_iteratorNormalCompletion15 && _iterator15.return != null) {
-          _iterator15.return();
+        if (!_iteratorNormalCompletion14 && _iterator14.return != null) {
+          _iterator14.return();
         }
       } finally {
-        if (_didIteratorError15) {
-          throw _iteratorError15;
+        if (_didIteratorError14) {
+          throw _iteratorError14;
         }
       }
     }
@@ -4967,7 +5327,7 @@ function getUnionMemberTypeNodes(union, typeName) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -4997,7 +5357,7 @@ var Source = function Source(body, name, locationOffset) {
 defineToStringTag(Source);
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -5014,7 +5374,7 @@ function syntaxError(source, position, description) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -5038,7 +5398,7 @@ function locatedError(originalError, nodes, path$$1) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -5047,7 +5407,7 @@ function locatedError(originalError, nodes, path$$1) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -5056,74 +5416,7 @@ function locatedError(originalError, nodes, path$$1) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- *
- * 
- */
-
-/**
- * Produces the value of a block string from its parsed raw value, similar to
- * CoffeeScript's block string, Python's docstring trim or Ruby's strip_heredoc.
- *
- * This implements the GraphQL spec's BlockStringValue() static algorithm.
- */
-function blockStringValue(rawString) {
-  // Expand a block string's raw value into independent lines.
-  var lines = rawString.split(/\r\n|[\n\r]/g); // Remove common indentation from all lines but first.
-
-  var commonIndent = null;
-
-  for (var i = 1; i < lines.length; i++) {
-    var line = lines[i];
-    var indent = leadingWhitespace(line);
-
-    if (indent < line.length && (commonIndent === null || indent < commonIndent)) {
-      commonIndent = indent;
-
-      if (commonIndent === 0) {
-        break;
-      }
-    }
-  }
-
-  if (commonIndent) {
-    for (var _i = 1; _i < lines.length; _i++) {
-      lines[_i] = lines[_i].slice(commonIndent);
-    }
-  } // Remove leading and trailing blank lines.
-
-
-  while (lines.length > 0 && isBlank(lines[0])) {
-    lines.shift();
-  }
-
-  while (lines.length > 0 && isBlank(lines[lines.length - 1])) {
-    lines.pop();
-  } // Return a string of the lines joined with U+000A.
-
-
-  return lines.join('\n');
-}
-
-function leadingWhitespace(str) {
-  var i = 0;
-
-  while (i < str.length && (str[i] === ' ' || str[i] === '\t')) {
-    i++;
-  }
-
-  return i;
-}
-
-function isBlank(str) {
-  return leadingWhitespace(str) === str.length;
-}
-
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -5207,10 +5500,6 @@ var TokenKind = Object.freeze({
   COMMENT: 'Comment'
 });
 /**
- * The enum type representing the token kinds values.
- */
-
-/**
  * A helper function to describe a token as a string for debugging
  */
 
@@ -5218,8 +5507,6 @@ function getTokenDesc(token) {
   var value = token.value;
   return value ? "".concat(token.kind, " \"").concat(value, "\"") : token.kind;
 }
-var charCodeAt = String.prototype.charCodeAt;
-var slice = String.prototype.slice;
 /**
  * Helper function for constructing the Token object.
  */
@@ -5273,7 +5560,7 @@ function readToken(lexer, prev) {
     return new Tok(TokenKind.EOF, bodyLength, bodyLength, line, col, prev);
   }
 
-  var code = charCodeAt.call(body, pos); // SourceCharacter
+  var code = body.charCodeAt(pos); // SourceCharacter
 
   switch (code) {
     // !
@@ -5302,7 +5589,7 @@ function readToken(lexer, prev) {
     // .
 
     case 46:
-      if (charCodeAt.call(body, pos + 1) === 46 && charCodeAt.call(body, pos + 2) === 46) {
+      if (body.charCodeAt(pos + 1) === 46 && body.charCodeAt(pos + 2) === 46) {
         return new Tok(TokenKind.SPREAD, pos, pos + 3, line, col, prev);
       }
 
@@ -5412,7 +5699,7 @@ function readToken(lexer, prev) {
     // "
 
     case 34:
-      if (charCodeAt.call(body, pos + 1) === 34 && charCodeAt.call(body, pos + 2) === 34) {
+      if (body.charCodeAt(pos + 1) === 34 && body.charCodeAt(pos + 2) === 34) {
         return readBlockString(source, pos, line, col, prev, lexer);
       }
 
@@ -5449,7 +5736,7 @@ function positionAfterWhitespace(body, startPosition, lexer) {
   var position = startPosition;
 
   while (position < bodyLength) {
-    var code = charCodeAt.call(body, position); // tab | space | comma | BOM
+    var code = body.charCodeAt(position); // tab | space | comma | BOM
 
     if (code === 9 || code === 32 || code === 44 || code === 0xfeff) {
       ++position;
@@ -5460,7 +5747,7 @@ function positionAfterWhitespace(body, startPosition, lexer) {
       lexer.lineStart = position;
     } else if (code === 13) {
       // carriage return
-      if (charCodeAt.call(body, position + 1) === 10) {
+      if (body.charCodeAt(position + 1) === 10) {
         position += 2;
       } else {
         ++position;
@@ -5488,11 +5775,11 @@ function readComment(source, start, line, col, prev) {
   var position = start;
 
   do {
-    code = charCodeAt.call(body, ++position);
-  } while (code !== null && ( // SourceCharacter but not LineTerminator
+    code = body.charCodeAt(++position);
+  } while (!isNaN(code) && ( // SourceCharacter but not LineTerminator
   code > 0x001f || code === 0x0009));
 
-  return new Tok(TokenKind.COMMENT, start, position, line, col, prev, slice.call(body, start + 1, position));
+  return new Tok(TokenKind.COMMENT, start, position, line, col, prev, body.slice(start + 1, position));
 }
 /**
  * Reads a number token from the source file, either a float
@@ -5511,43 +5798,43 @@ function readNumber(source, start, firstCode, line, col, prev) {
 
   if (code === 45) {
     // -
-    code = charCodeAt.call(body, ++position);
+    code = body.charCodeAt(++position);
   }
 
   if (code === 48) {
     // 0
-    code = charCodeAt.call(body, ++position);
+    code = body.charCodeAt(++position);
 
     if (code >= 48 && code <= 57) {
       throw syntaxError(source, position, "Invalid number, unexpected digit after 0: ".concat(printCharCode(code), "."));
     }
   } else {
     position = readDigits(source, position, code);
-    code = charCodeAt.call(body, position);
+    code = body.charCodeAt(position);
   }
 
   if (code === 46) {
     // .
     isFloat = true;
-    code = charCodeAt.call(body, ++position);
+    code = body.charCodeAt(++position);
     position = readDigits(source, position, code);
-    code = charCodeAt.call(body, position);
+    code = body.charCodeAt(position);
   }
 
   if (code === 69 || code === 101) {
     // E e
     isFloat = true;
-    code = charCodeAt.call(body, ++position);
+    code = body.charCodeAt(++position);
 
     if (code === 43 || code === 45) {
       // + -
-      code = charCodeAt.call(body, ++position);
+      code = body.charCodeAt(++position);
     }
 
     position = readDigits(source, position, code);
   }
 
-  return new Tok(isFloat ? TokenKind.FLOAT : TokenKind.INT, start, position, line, col, prev, slice.call(body, start, position));
+  return new Tok(isFloat ? TokenKind.FLOAT : TokenKind.INT, start, position, line, col, prev, body.slice(start, position));
 }
 /**
  * Returns the new position in the source after reading digits.
@@ -5562,7 +5849,7 @@ function readDigits(source, start, firstCode) {
   if (code >= 48 && code <= 57) {
     // 0 - 9
     do {
-      code = charCodeAt.call(body, ++position);
+      code = body.charCodeAt(++position);
     } while (code >= 48 && code <= 57); // 0 - 9
 
 
@@ -5585,11 +5872,11 @@ function readString(source, start, line, col, prev) {
   var code = 0;
   var value = '';
 
-  while (position < body.length && (code = charCodeAt.call(body, position)) !== null && // not LineTerminator
+  while (position < body.length && !isNaN(code = body.charCodeAt(position)) && // not LineTerminator
   code !== 0x000a && code !== 0x000d) {
     // Closing Quote (")
     if (code === 34) {
-      value += slice.call(body, chunkStart, position);
+      value += body.slice(chunkStart, position);
       return new Tok(TokenKind.STRING, start, position + 1, line, col, prev, value);
     } // SourceCharacter
 
@@ -5602,8 +5889,8 @@ function readString(source, start, line, col, prev) {
 
     if (code === 92) {
       // \
-      value += slice.call(body, chunkStart, position - 1);
-      code = charCodeAt.call(body, position);
+      value += body.slice(chunkStart, position - 1);
+      code = body.charCodeAt(position);
 
       switch (code) {
         case 34:
@@ -5640,7 +5927,7 @@ function readString(source, start, line, col, prev) {
 
         case 117:
           // u
-          var charCode = uniCharCode(charCodeAt.call(body, position + 1), charCodeAt.call(body, position + 2), charCodeAt.call(body, position + 3), charCodeAt.call(body, position + 4));
+          var charCode = uniCharCode(body.charCodeAt(position + 1), body.charCodeAt(position + 2), body.charCodeAt(position + 3), body.charCodeAt(position + 4));
 
           if (charCode < 0) {
             throw syntaxError(source, position, 'Invalid character escape sequence: ' + "\\u".concat(body.slice(position + 1, position + 5), "."));
@@ -5675,11 +5962,11 @@ function readBlockString(source, start, line, col, prev, lexer) {
   var code = 0;
   var rawValue = '';
 
-  while (position < body.length && (code = charCodeAt.call(body, position)) !== null) {
+  while (position < body.length && !isNaN(code = body.charCodeAt(position))) {
     // Closing Triple-Quote (""")
-    if (code === 34 && charCodeAt.call(body, position + 1) === 34 && charCodeAt.call(body, position + 2) === 34) {
-      rawValue += slice.call(body, chunkStart, position);
-      return new Tok(TokenKind.BLOCK_STRING, start, position + 3, line, col, prev, blockStringValue(rawValue));
+    if (code === 34 && body.charCodeAt(position + 1) === 34 && body.charCodeAt(position + 2) === 34) {
+      rawValue += body.slice(chunkStart, position);
+      return new Tok(TokenKind.BLOCK_STRING, start, position + 3, line, col, prev, dedentBlockStringValue(rawValue));
     } // SourceCharacter
 
 
@@ -5694,7 +5981,7 @@ function readBlockString(source, start, line, col, prev, lexer) {
       lexer.lineStart = position;
     } else if (code === 13) {
       // carriage return
-      if (charCodeAt.call(body, position + 1) === 10) {
+      if (body.charCodeAt(position + 1) === 10) {
         position += 2;
       } else {
         ++position;
@@ -5703,8 +5990,8 @@ function readBlockString(source, start, line, col, prev, lexer) {
       ++lexer.line;
       lexer.lineStart = position;
     } else if ( // Escape Triple-Quote (\""")
-    code === 92 && charCodeAt.call(body, position + 1) === 34 && charCodeAt.call(body, position + 2) === 34 && charCodeAt.call(body, position + 3) === 34) {
-      rawValue += slice.call(body, chunkStart, position) + '"""';
+    code === 92 && body.charCodeAt(position + 1) === 34 && body.charCodeAt(position + 2) === 34 && body.charCodeAt(position + 3) === 34) {
+      rawValue += body.slice(chunkStart, position) + '"""';
       position += 4;
       chunkStart = position;
     } else {
@@ -5758,7 +6045,7 @@ function readName(source, start, line, col, prev) {
   var position = start + 1;
   var code = 0;
 
-  while (position !== bodyLength && (code = charCodeAt.call(body, position)) !== null && (code === 95 || // _
+  while (position !== bodyLength && !isNaN(code = body.charCodeAt(position)) && (code === 95 || // _
   code >= 48 && code <= 57 || // 0-9
   code >= 65 && code <= 90 || // A-Z
   code >= 97 && code <= 122) // a-z
@@ -5766,11 +6053,11 @@ function readName(source, start, line, col, prev) {
     ++position;
   }
 
-  return new Tok(TokenKind.NAME, start, position, line, col, prev, slice.call(body, start, position));
+  return new Tok(TokenKind.NAME, start, position, line, col, prev, body.slice(start, position));
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -5801,7 +6088,7 @@ function parse(source, options) {
  */
 
 function parseName(lexer) {
-  var token = expect(lexer, TokenKind.NAME);
+  var token = expectToken(lexer, TokenKind.NAME);
   return {
     kind: Kind.NAME,
     value: token.value,
@@ -5930,7 +6217,7 @@ function parseOperationDefinition(lexer) {
 
 
 function parseOperationType(lexer) {
-  var operationToken = expect(lexer, TokenKind.NAME);
+  var operationToken = expectToken(lexer, TokenKind.NAME);
 
   switch (operationToken.value) {
     case 'query':
@@ -5963,8 +6250,8 @@ function parseVariableDefinition(lexer) {
   return {
     kind: Kind.VARIABLE_DEFINITION,
     variable: parseVariable(lexer),
-    type: (expect(lexer, TokenKind.COLON), parseTypeReference(lexer)),
-    defaultValue: skip(lexer, TokenKind.EQUALS) ? parseValueLiteral(lexer, true) : undefined,
+    type: (expectToken(lexer, TokenKind.COLON), parseTypeReference(lexer)),
+    defaultValue: expectOptionalToken(lexer, TokenKind.EQUALS) ? parseValueLiteral(lexer, true) : undefined,
     directives: parseDirectives(lexer, true),
     loc: loc(lexer, start)
   };
@@ -5976,7 +6263,7 @@ function parseVariableDefinition(lexer) {
 
 function parseVariable(lexer) {
   var start = lexer.token;
-  expect(lexer, TokenKind.DOLLAR);
+  expectToken(lexer, TokenKind.DOLLAR);
   return {
     kind: Kind.VARIABLE,
     name: parseName(lexer),
@@ -6020,7 +6307,7 @@ function parseField(lexer) {
   var alias;
   var name;
 
-  if (skip(lexer, TokenKind.COLON)) {
+  if (expectOptionalToken(lexer, TokenKind.COLON)) {
     alias = nameOrAlias;
     name = parseName(lexer);
   } else {
@@ -6053,10 +6340,12 @@ function parseArguments(lexer, isConst) {
 
 function parseArgument(lexer) {
   var start = lexer.token;
+  var name = parseName(lexer);
+  expectToken(lexer, TokenKind.COLON);
   return {
     kind: Kind.ARGUMENT,
-    name: parseName(lexer),
-    value: (expect(lexer, TokenKind.COLON), parseValueLiteral(lexer, false)),
+    name: name,
+    value: parseValueLiteral(lexer, false),
     loc: loc(lexer, start)
   };
 }
@@ -6066,7 +6355,7 @@ function parseConstArgument(lexer) {
   return {
     kind: Kind.ARGUMENT,
     name: parseName(lexer),
-    value: (expect(lexer, TokenKind.COLON), parseConstValue(lexer)),
+    value: (expectToken(lexer, TokenKind.COLON), parseConstValue(lexer)),
     loc: loc(lexer, start)
   };
 } // Implements the parsing rules in the Fragments section.
@@ -6082,8 +6371,8 @@ function parseConstArgument(lexer) {
 
 function parseFragment(lexer) {
   var start = lexer.token;
-  expect(lexer, TokenKind.SPREAD);
-  var hasTypeCondition = skipKeyword(lexer, 'on');
+  expectToken(lexer, TokenKind.SPREAD);
+  var hasTypeCondition = expectOptionalKeyword(lexer, 'on');
 
   if (!hasTypeCondition && peek(lexer, TokenKind.NAME)) {
     return {
@@ -6277,16 +6566,14 @@ function parseList(lexer, isConst) {
 
 function parseObject(lexer, isConst) {
   var start = lexer.token;
-  expect(lexer, TokenKind.BRACE_L);
-  var fields = [];
 
-  while (!skip(lexer, TokenKind.BRACE_R)) {
-    fields.push(parseObjectField(lexer, isConst));
-  }
+  var item = function item() {
+    return parseObjectField(lexer, isConst);
+  };
 
   return {
     kind: Kind.OBJECT,
-    fields: fields,
+    fields: any(lexer, TokenKind.BRACE_L, item, TokenKind.BRACE_R),
     loc: loc(lexer, start)
   };
 }
@@ -6297,10 +6584,12 @@ function parseObject(lexer, isConst) {
 
 function parseObjectField(lexer, isConst) {
   var start = lexer.token;
+  var name = parseName(lexer);
+  expectToken(lexer, TokenKind.COLON);
   return {
     kind: Kind.OBJECT_FIELD,
-    name: parseName(lexer),
-    value: (expect(lexer, TokenKind.COLON), parseValueLiteral(lexer, isConst)),
+    name: name,
+    value: parseValueLiteral(lexer, isConst),
     loc: loc(lexer, start)
   };
 } // Implements the parsing rules in the Directives section.
@@ -6326,7 +6615,7 @@ function parseDirectives(lexer, isConst) {
 
 function parseDirective(lexer, isConst) {
   var start = lexer.token;
-  expect(lexer, TokenKind.AT);
+  expectToken(lexer, TokenKind.AT);
   return {
     kind: Kind.DIRECTIVE,
     name: parseName(lexer),
@@ -6347,9 +6636,9 @@ function parseTypeReference(lexer) {
   var start = lexer.token;
   var type;
 
-  if (skip(lexer, TokenKind.BRACKET_L)) {
+  if (expectOptionalToken(lexer, TokenKind.BRACKET_L)) {
     type = parseTypeReference(lexer);
-    expect(lexer, TokenKind.BRACKET_R);
+    expectToken(lexer, TokenKind.BRACKET_R);
     type = {
       kind: Kind.LIST_TYPE,
       type: type,
@@ -6359,7 +6648,7 @@ function parseTypeReference(lexer) {
     type = parseNamedType(lexer);
   }
 
-  if (skip(lexer, TokenKind.BANG)) {
+  if (expectOptionalToken(lexer, TokenKind.BANG)) {
     return {
       kind: Kind.NON_NULL_TYPE,
       type: type,
@@ -6470,7 +6759,7 @@ function parseSchemaDefinition(lexer) {
 function parseOperationTypeDefinition(lexer) {
   var start = lexer.token;
   var operation = parseOperationType(lexer);
-  expect(lexer, TokenKind.COLON);
+  expectToken(lexer, TokenKind.COLON);
   var type = parseNamedType(lexer);
   return {
     kind: Kind.OPERATION_TYPE_DEFINITION,
@@ -6533,13 +6822,13 @@ function parseObjectTypeDefinition(lexer) {
 function parseImplementsInterfaces(lexer) {
   var types = [];
 
-  if (skipKeyword(lexer, 'implements')) {
+  if (expectOptionalKeyword(lexer, 'implements')) {
     // Optional leading ampersand
-    skip(lexer, TokenKind.AMP);
+    expectOptionalToken(lexer, TokenKind.AMP);
 
     do {
       types.push(parseNamedType(lexer));
-    } while (skip(lexer, TokenKind.AMP) || // Legacy support for the SDL?
+    } while (expectOptionalToken(lexer, TokenKind.AMP) || // Legacy support for the SDL?
     lexer.options.allowLegacySDLImplementsInterfaces && peek(lexer, TokenKind.NAME));
   }
 
@@ -6571,7 +6860,7 @@ function parseFieldDefinition(lexer) {
   var description = parseDescription(lexer);
   var name = parseName(lexer);
   var args = parseArgumentDefs(lexer);
-  expect(lexer, TokenKind.COLON);
+  expectToken(lexer, TokenKind.COLON);
   var type = parseTypeReference(lexer);
   var directives = parseDirectives(lexer, true);
   return {
@@ -6606,11 +6895,11 @@ function parseInputValueDef(lexer) {
   var start = lexer.token;
   var description = parseDescription(lexer);
   var name = parseName(lexer);
-  expect(lexer, TokenKind.COLON);
+  expectToken(lexer, TokenKind.COLON);
   var type = parseTypeReference(lexer);
   var defaultValue;
 
-  if (skip(lexer, TokenKind.EQUALS)) {
+  if (expectOptionalToken(lexer, TokenKind.EQUALS)) {
     defaultValue = parseConstValue(lexer);
   }
 
@@ -6679,13 +6968,13 @@ function parseUnionTypeDefinition(lexer) {
 function parseUnionMemberTypes(lexer) {
   var types = [];
 
-  if (skip(lexer, TokenKind.EQUALS)) {
+  if (expectOptionalToken(lexer, TokenKind.EQUALS)) {
     // Optional leading pipe
-    skip(lexer, TokenKind.PIPE);
+    expectOptionalToken(lexer, TokenKind.PIPE);
 
     do {
       types.push(parseNamedType(lexer));
-    } while (skip(lexer, TokenKind.PIPE));
+    } while (expectOptionalToken(lexer, TokenKind.PIPE));
   }
 
   return types;
@@ -7012,7 +7301,7 @@ function parseDirectiveDefinition(lexer) {
   var start = lexer.token;
   var description = parseDescription(lexer);
   expectKeyword(lexer, 'directive');
-  expect(lexer, TokenKind.AT);
+  expectToken(lexer, TokenKind.AT);
   var name = parseName(lexer);
   var args = parseArgumentDefs(lexer);
   expectKeyword(lexer, 'on');
@@ -7035,12 +7324,12 @@ function parseDirectiveDefinition(lexer) {
 
 function parseDirectiveLocations(lexer) {
   // Optional leading pipe
-  skip(lexer, TokenKind.PIPE);
+  expectOptionalToken(lexer, TokenKind.PIPE);
   var locations = [];
 
   do {
     locations.push(parseDirectiveLocation(lexer));
-  } while (skip(lexer, TokenKind.PIPE));
+  } while (expectOptionalToken(lexer, TokenKind.PIPE));
 
   return locations;
 }
@@ -7119,26 +7408,12 @@ function peek(lexer, kind) {
   return lexer.token.kind === kind;
 }
 /**
- * If the next token is of the given kind, return true after advancing
- * the lexer. Otherwise, do not change the parser state and return false.
- */
-
-
-function skip(lexer, kind) {
-  if (lexer.token.kind === kind) {
-    lexer.advance();
-    return true;
-  }
-
-  return false;
-}
-/**
  * If the next token is of the given kind, return that token after advancing
  * the lexer. Otherwise, do not change the parser state and throw an error.
  */
 
 
-function expect(lexer, kind) {
+function expectToken(lexer, kind) {
   var token = lexer.token;
 
   if (token.kind === kind) {
@@ -7149,32 +7424,52 @@ function expect(lexer, kind) {
   throw syntaxError(lexer.source, token.start, "Expected ".concat(kind, ", found ").concat(getTokenDesc(token)));
 }
 /**
- * If the next token is a keyword with the given value, return true after advancing
- * the lexer. Otherwise, do not change the parser state and return false.
+ * If the next token is of the given kind, return that token after advancing
+ * the lexer. Otherwise, do not change the parser state and return undefined.
  */
 
 
-function skipKeyword(lexer, value) {
+function expectOptionalToken(lexer, kind) {
   var token = lexer.token;
 
-  if (token.kind === TokenKind.NAME && token.value === value) {
+  if (token.kind === kind) {
     lexer.advance();
-    return true;
+    return token;
   }
 
-  return false;
+  return undefined;
 }
 /**
- * If the next token is a keyword with the given value, return that token after
- * advancing the lexer. Otherwise, do not change the parser state and throw
- * an error.
+ * If the next token is a given keyword, return that token after advancing
+ * the lexer. Otherwise, do not change the parser state and throw an error.
  */
 
 
 function expectKeyword(lexer, value) {
-  if (!skipKeyword(lexer, value)) {
-    throw syntaxError(lexer.source, lexer.token.start, "Expected \"".concat(value, "\", found ").concat(getTokenDesc(lexer.token)));
+  var token = lexer.token;
+
+  if (token.kind === TokenKind.NAME && token.value === value) {
+    lexer.advance();
+    return token;
   }
+
+  throw syntaxError(lexer.source, token.start, "Expected \"".concat(value, "\", found ").concat(getTokenDesc(token)));
+}
+/**
+ * If the next token is a given keyword, return that token after advancing
+ * the lexer. Otherwise, do not change the parser state and return undefined.
+ */
+
+
+function expectOptionalKeyword(lexer, value) {
+  var token = lexer.token;
+
+  if (token.kind === TokenKind.NAME && token.value === value) {
+    lexer.advance();
+    return token;
+  }
+
+  return undefined;
 }
 /**
  * Helper function for creating an error when an unexpected lexed token
@@ -7195,10 +7490,10 @@ function unexpected(lexer, atToken) {
 
 
 function any(lexer, openKind, parseFn, closeKind) {
-  expect(lexer, openKind);
+  expectToken(lexer, openKind);
   var nodes = [];
 
-  while (!skip(lexer, closeKind)) {
+  while (!expectOptionalToken(lexer, closeKind)) {
     nodes.push(parseFn(lexer));
   }
 
@@ -7213,10 +7508,10 @@ function any(lexer, openKind, parseFn, closeKind) {
 
 
 function many(lexer, openKind, parseFn, closeKind) {
-  expect(lexer, openKind);
+  expectToken(lexer, openKind);
   var nodes = [parseFn(lexer)];
 
-  while (!skip(lexer, closeKind)) {
+  while (!expectOptionalToken(lexer, closeKind)) {
     nodes.push(parseFn(lexer));
   }
 
@@ -7224,7 +7519,7 @@ function many(lexer, openKind, parseFn, closeKind) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7247,15 +7542,16 @@ function typeFromAST(schema, typeNode) {
 
   if (typeNode.kind === Kind.NAMED_TYPE) {
     return schema.getType(typeNode.name.value);
-  }
+  } // Not reachable. All possible type nodes have been considered.
+
   /* istanbul ignore next */
 
 
-  throw new Error("Unexpected type kind: ".concat(typeNode.kind, "."));
+  throw new Error("Unexpected type node: \"".concat(inspect(typeNode), "\"."));
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7566,7 +7862,7 @@ function getFieldDef(schema, parentType, fieldNode) {
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7590,7 +7886,7 @@ function isTypeExtensionNode(node) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7619,7 +7915,7 @@ function ExecutableDefinitions(context) {
           var definition = _step.value;
 
           if (!isExecutableDefinitionNode(definition)) {
-            context.reportError(new GraphQLError(nonExecutableDefinitionMessage(definition.kind === Kind.SCHEMA_DEFINITION || definition.kind === Kind.SCHEMA_EXTENSION ? 'schema' : definition.name.value), [definition]));
+            context.reportError(new GraphQLError(nonExecutableDefinitionMessage(definition.kind === Kind.SCHEMA_DEFINITION || definition.kind === Kind.SCHEMA_EXTENSION ? 'schema' : definition.name.value), definition));
           }
         }
       } catch (err) {
@@ -7643,7 +7939,7 @@ function ExecutableDefinitions(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7682,7 +7978,7 @@ function UniqueOperationNames(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7709,14 +8005,14 @@ function LoneAnonymousOperation(context) {
     },
     OperationDefinition: function OperationDefinition(node) {
       if (!node.name && operationCount > 1) {
-        context.reportError(new GraphQLError(anonOperationNotAloneMessage(), [node]));
+        context.reportError(new GraphQLError(anonOperationNotAloneMessage(), node));
       }
     }
   };
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7745,7 +8041,7 @@ function SingleFieldSubscriptions(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7834,7 +8130,7 @@ function lexicalDistance(aStr, bStr) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7863,7 +8159,7 @@ function orList(items) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7881,7 +8177,7 @@ function quotedOrList(items) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7967,7 +8263,7 @@ function isSDLNode(value) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7997,7 +8293,7 @@ function FragmentsOnCompositeTypes(context) {
         var type = typeFromAST(context.getSchema(), typeCondition);
 
         if (type && !isCompositeType(type)) {
-          context.reportError(new GraphQLError(inlineFragmentOnNonCompositeErrorMessage(print(typeCondition)), [typeCondition]));
+          context.reportError(new GraphQLError(inlineFragmentOnNonCompositeErrorMessage(print(typeCondition)), typeCondition));
         }
       }
     },
@@ -8005,14 +8301,14 @@ function FragmentsOnCompositeTypes(context) {
       var type = typeFromAST(context.getSchema(), node.typeCondition);
 
       if (type && !isCompositeType(type)) {
-        context.reportError(new GraphQLError(fragmentOnNonCompositeErrorMessage(node.name.value, print(node.typeCondition)), [node.typeCondition]));
+        context.reportError(new GraphQLError(fragmentOnNonCompositeErrorMessage(node.name.value, print(node.typeCondition)), node.typeCondition));
       }
     }
   };
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8036,14 +8332,14 @@ function VariablesAreInputTypes(context) {
 
       if (type && !isInputType(type)) {
         var variableName = node.variable.name.value;
-        context.reportError(new GraphQLError(nonInputTypeOnVarMessage(variableName, print(node.type)), [node.type]));
+        context.reportError(new GraphQLError(nonInputTypeOnVarMessage(variableName, print(node.type)), node.type));
       }
     }
   };
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8072,10 +8368,10 @@ function ScalarLeafs(context) {
       if (type) {
         if (isLeafType(getNamedType(type))) {
           if (selectionSet) {
-            context.reportError(new GraphQLError(noSubselectionAllowedMessage(node.name.value, inspect(type)), [selectionSet]));
+            context.reportError(new GraphQLError(noSubselectionAllowedMessage(node.name.value, inspect(type)), selectionSet));
           }
         } else if (!selectionSet) {
-          context.reportError(new GraphQLError(requiredSubselectionMessage(node.name.value, inspect(type)), [node]));
+          context.reportError(new GraphQLError(requiredSubselectionMessage(node.name.value, inspect(type)), node));
         }
       }
     }
@@ -8083,7 +8379,7 @@ function ScalarLeafs(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8126,7 +8422,7 @@ function FieldsOnCorrectType(context) {
 
           var suggestedFieldNames = suggestedTypeNames.length !== 0 ? [] : getSuggestedFieldNames(schema, type, fieldName); // Report an error, including helpful suggestions.
 
-          context.reportError(new GraphQLError(undefinedFieldMessage(fieldName, type.name, suggestedTypeNames, suggestedFieldNames), [node]));
+          context.reportError(new GraphQLError(undefinedFieldMessage(fieldName, type.name, suggestedTypeNames, suggestedFieldNames), node));
         }
       }
     }
@@ -8229,7 +8525,7 @@ function getSuggestedFieldNames(schema, type, fieldName) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8266,7 +8562,7 @@ function UniqueFragmentNames(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8290,14 +8586,14 @@ function KnownFragmentNames(context) {
       var fragment = context.getFragment(fragmentName);
 
       if (!fragment) {
-        context.reportError(new GraphQLError(unknownFragmentMessage(fragmentName), [node.name]));
+        context.reportError(new GraphQLError(unknownFragmentMessage(fragmentName), node.name));
       }
     }
   };
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8330,8 +8626,8 @@ function NoUnusedFragments(context) {
       leave: function leave() {
         var fragmentNameUsed = Object.create(null);
 
-        for (var _i = 0; _i < operationDefs.length; _i++) {
-          var operation = operationDefs[_i];
+        for (var _i = 0, _operationDefs = operationDefs; _i < _operationDefs.length; _i++) {
+          var operation = _operationDefs[_i];
           var _iteratorNormalCompletion = true;
           var _didIteratorError = false;
           var _iteratorError = undefined;
@@ -8357,12 +8653,12 @@ function NoUnusedFragments(context) {
           }
         }
 
-        for (var _i2 = 0; _i2 < fragmentDefs.length; _i2++) {
-          var fragmentDef = fragmentDefs[_i2];
+        for (var _i2 = 0, _fragmentDefs = fragmentDefs; _i2 < _fragmentDefs.length; _i2++) {
+          var fragmentDef = _fragmentDefs[_i2];
           var fragName = fragmentDef.name.value;
 
           if (fragmentNameUsed[fragName] !== true) {
-            context.reportError(new GraphQLError(unusedFragMessage(fragName), [fragmentDef]));
+            context.reportError(new GraphQLError(unusedFragMessage(fragName), fragmentDef));
           }
         }
       }
@@ -8371,7 +8667,7 @@ function NoUnusedFragments(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8399,7 +8695,7 @@ function PossibleFragmentSpreads(context) {
       var parentType = context.getParentType();
 
       if (isCompositeType(fragType) && isCompositeType(parentType) && !doTypesOverlap(context.getSchema(), fragType, parentType)) {
-        context.reportError(new GraphQLError(typeIncompatibleAnonSpreadMessage(inspect(parentType), inspect(fragType)), [node]));
+        context.reportError(new GraphQLError(typeIncompatibleAnonSpreadMessage(inspect(parentType), inspect(fragType)), node));
       }
     },
     FragmentSpread: function FragmentSpread(node) {
@@ -8408,7 +8704,7 @@ function PossibleFragmentSpreads(context) {
       var parentType = context.getParentType();
 
       if (fragType && parentType && !doTypesOverlap(context.getSchema(), fragType, parentType)) {
-        context.reportError(new GraphQLError(typeIncompatibleSpreadMessage(fragName, inspect(parentType), inspect(fragType)), [node]));
+        context.reportError(new GraphQLError(typeIncompatibleSpreadMessage(fragName, inspect(parentType), inspect(fragType)), node));
       }
     }
   };
@@ -8427,7 +8723,7 @@ function getFragmentType(context, name) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8501,7 +8797,7 @@ function NoFragmentCycles(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8536,7 +8832,7 @@ function UniqueVariableNames(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8599,7 +8895,7 @@ function NoUndefinedVariables(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8652,12 +8948,12 @@ function NoUnusedVariables(context) {
           }
         }
 
-        for (var _i = 0; _i < variableDefs.length; _i++) {
-          var variableDef = variableDefs[_i];
+        for (var _i = 0, _variableDefs = variableDefs; _i < _variableDefs.length; _i++) {
+          var variableDef = _variableDefs[_i];
           var variableName = variableDef.variable.name.value;
 
           if (variableNameUsed[variableName] !== true) {
-            context.reportError(new GraphQLError(unusedVariableMessage(variableName, opName), [variableDef]));
+            context.reportError(new GraphQLError(unusedVariableMessage(variableName, opName), variableDef));
           }
         }
       }
@@ -8669,7 +8965,7 @@ function NoUnusedVariables(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8753,14 +9049,14 @@ function KnownDirectives(context) {
       var locations = locationsMap[name];
 
       if (!locations) {
-        context.reportError(new GraphQLError(unknownDirectiveMessage(name), [node]));
+        context.reportError(new GraphQLError(unknownDirectiveMessage(name), node));
         return;
       }
 
       var candidateLocation = getDirectiveLocationForASTPath(ancestors);
 
       if (candidateLocation && locations.indexOf(candidateLocation) === -1) {
-        context.reportError(new GraphQLError(misplacedDirectiveMessage(name, candidateLocation), [node]));
+        context.reportError(new GraphQLError(misplacedDirectiveMessage(name, candidateLocation), node));
       }
     }
   };
@@ -8842,7 +9138,7 @@ function getDirectiveLocationForASTPath(ancestors) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9082,7 +9378,7 @@ function KnownArgumentNamesOnDirectives(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9123,7 +9419,7 @@ function UniqueArgumentNames(context) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9321,10 +9617,10 @@ function _defineProperty$2(obj, key, value) {
   return obj;
 }
 function missingFieldArgMessage(fieldName, argName, type) {
-  return "Field \"".concat(fieldName, "\" argument \"").concat(argName, "\" of type ") + "\"".concat(type, "\" is required but not provided.");
+  return "Field \"".concat(fieldName, "\" argument \"").concat(argName, "\" of type ") + "\"".concat(type, "\" is required, but it was not provided.");
 }
 function missingDirectiveArgMessage(directiveName, argName, type) {
-  return "Directive \"@".concat(directiveName, "\" argument \"").concat(argName, "\" of type ") + "\"".concat(type, "\" is required but not provided.");
+  return "Directive \"@".concat(directiveName, "\" argument \"").concat(argName, "\" of type ") + "\"".concat(type, "\" is required, but it was not provided.");
 }
 /**
  * Provided required arguments
@@ -9358,7 +9654,7 @@ function ProvidedRequiredArguments(context) {
             var argNode = argNodeMap[argDef.name];
 
             if (!argNode && isRequiredArgument(argDef)) {
-              context.reportError(new GraphQLError(missingFieldArgMessage(fieldDef.name, argDef.name, inspect(argDef.type)), [fieldNode]));
+              context.reportError(new GraphQLError(missingFieldArgMessage(fieldDef.name, argDef.name, inspect(argDef.type)), fieldNode));
             }
           }
         } catch (err) {
@@ -9453,10 +9749,8 @@ function ProvidedRequiredArgumentsOnDirectives(context) {
             return arg.name.value;
           });
 
-          var _arr = Object.keys(requiredArgs);
-
-          for (var _i = 0; _i < _arr.length; _i++) {
-            var argName = _arr[_i];
+          for (var _i = 0, _Object$keys = Object.keys(requiredArgs); _i < _Object$keys.length; _i++) {
+            var argName = _Object$keys[_i];
 
             if (!argNodeMap[argName]) {
               var argType = requiredArgs[argName].type;
@@ -9474,7 +9768,7 @@ function isRequiredArgumentNode(arg) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9568,7 +9862,7 @@ function allowedVariableUsage(schema, varType, varDefaultValue, locationType, lo
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9612,8 +9906,8 @@ function OverlappingFieldsCanBeMerged(context) {
     SelectionSet: function SelectionSet(selectionSet) {
       var conflicts = findConflictsWithinSelectionSet(context, cachedFieldsAndFragmentNames, comparedFragmentPairs, context.getParentType(), selectionSet);
 
-      for (var _i = 0; _i < conflicts.length; _i++) {
-        var _ref3 = conflicts[_i];
+      for (var _i = 0, _conflicts = conflicts; _i < _conflicts.length; _i++) {
+        var _ref3 = _conflicts[_i];
         var _ref2$ = _ref3[0];
         var responseName = _ref2$[0];
         var reason = _ref2$[1];
@@ -9897,10 +10191,8 @@ function collectConflictsBetween(context, conflicts, cachedFieldsAndFragmentName
   // response name. For any response name which appears in both provided field
   // maps, each field from the first field map must be compared to every field
   // in the second field map to find potential conflicts.
-  var _arr = Object.keys(fieldMap1);
-
-  for (var _i3 = 0; _i3 < _arr.length; _i3++) {
-    var responseName = _arr[_i3];
+  for (var _i3 = 0, _Object$keys = Object.keys(fieldMap1); _i3 < _Object$keys.length; _i3++) {
+    var responseName = _Object$keys[_i3];
     var fields2 = fieldMap2[responseName];
 
     if (fields2) {
@@ -10161,7 +10453,7 @@ function _pairSetAdd(data, a, b, areMutuallyExclusive) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10199,14 +10491,12 @@ function UniqueInputFieldNames(context) {
       } else {
         knownNames[fieldName] = node.name;
       }
-
-      return false;
     }
   };
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10246,7 +10536,7 @@ function LoneSchemaDefinition(context) {
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10319,7 +10609,7 @@ function UniqueOperationTypes(context) {
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10369,7 +10659,7 @@ function UniqueTypeNames(context) {
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10404,9 +10694,8 @@ function UniqueEnumValueNames(context) {
       knownValueNames[typeName] = Object.create(null);
     }
 
-    var valueNames = knownValueNames[typeName];
-
     if (node.values) {
+      var valueNames = knownValueNames[typeName];
       var _iteratorNormalCompletion = true;
       var _didIteratorError = false;
       var _iteratorError = undefined;
@@ -10419,10 +10708,7 @@ function UniqueEnumValueNames(context) {
 
           if (isEnumType(existingType) && existingType.getValue(valueName)) {
             context.reportError(new GraphQLError(existedEnumValueNameMessage(typeName, valueName), valueDef.name));
-            continue;
-          }
-
-          if (valueNames[valueName]) {
+          } else if (valueNames[valueName]) {
             context.reportError(new GraphQLError(duplicateEnumValueNameMessage(typeName, valueName), [valueNames[valueName], valueDef.name]));
           } else {
             valueNames[valueName] = valueDef.name;
@@ -10449,7 +10735,7 @@ function UniqueEnumValueNames(context) {
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10488,9 +10774,8 @@ function UniqueFieldDefinitionNames(context) {
       knownFieldNames[typeName] = Object.create(null);
     }
 
-    var fieldNames = knownFieldNames[typeName];
-
     if (node.fields) {
+      var fieldNames = knownFieldNames[typeName];
       var _iteratorNormalCompletion = true;
       var _didIteratorError = false;
       var _iteratorError = undefined;
@@ -10502,10 +10787,7 @@ function UniqueFieldDefinitionNames(context) {
 
           if (hasField(existingTypeMap[typeName], fieldName)) {
             context.reportError(new GraphQLError(existedFieldDefinitionNameMessage(typeName, fieldName), fieldDef.name));
-            continue;
-          }
-
-          if (fieldNames[fieldName]) {
+          } else if (fieldNames[fieldName]) {
             context.reportError(new GraphQLError(duplicateFieldDefinitionNameMessage(typeName, fieldName), [fieldNames[fieldName], fieldDef.name]));
           } else {
             fieldNames[fieldName] = fieldDef.name;
@@ -10540,7 +10822,7 @@ function hasField(type, fieldName) {
 }
 
 /**
- * Copyright (c) 2018-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10599,7 +10881,7 @@ function _defineProperty$3(obj, key, value) {
   return obj;
 }
 function extendingUnknownTypeMessage(typeName, suggestedTypes) {
-  var message = "Cannot extend type \"".concat(typeName, "\" because it does not defined.");
+  var message = "Cannot extend type \"".concat(typeName, "\" because it is not defined.");
 
   if (suggestedTypes.length) {
     message += " Did you mean ".concat(quotedOrList(suggestedTypes), "?");
@@ -10613,7 +10895,7 @@ function extendingDifferentTypeKindMessage(typeName, kind) {
 /**
  * Possible type extension
  *
- * A type extension is only valid if the type defined and have the same kind.
+ * A type extension is only valid if the type is defined and has the same kind.
  */
 
 function PossibleTypeExtensions(context) {
@@ -10728,7 +11010,7 @@ function extensionKindToTypeName(kind) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10978,7 +11260,7 @@ function (_ASTValidationContext2) {
 }(ASTValidationContext);
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11046,7 +11328,7 @@ function assertValidSDL(documentAST) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11064,7 +11346,7 @@ function isPromise(value) {
 }
 
 /**
- * Copyright (c) 2017-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11115,7 +11397,7 @@ function memoize3(fn) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11144,7 +11426,7 @@ function promiseForObject(object) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11168,7 +11450,7 @@ function promiseReduce(values, callback, initialValue) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11185,7 +11467,7 @@ function getOperationRootType(schema, operation) {
       var queryType = schema.getQueryType();
 
       if (!queryType) {
-        throw new GraphQLError('Schema does not define the required query root type.', [operation]);
+        throw new GraphQLError('Schema does not define the required query root type.', operation);
       }
 
       return queryType;
@@ -11194,7 +11476,7 @@ function getOperationRootType(schema, operation) {
       var mutationType = schema.getMutationType();
 
       if (!mutationType) {
-        throw new GraphQLError('Schema is not configured for mutations.', [operation]);
+        throw new GraphQLError('Schema is not configured for mutations.', operation);
       }
 
       return mutationType;
@@ -11203,13 +11485,13 @@ function getOperationRootType(schema, operation) {
       var subscriptionType = schema.getSubscriptionType();
 
       if (!subscriptionType) {
-        throw new GraphQLError('Schema is not configured for subscriptions.', [operation]);
+        throw new GraphQLError('Schema is not configured for subscriptions.', operation);
       }
 
       return subscriptionType;
 
     default:
-      throw new GraphQLError('Can only have query, mutation and subscription operations.', [operation]);
+      throw new GraphQLError('Can only have query, mutation and subscription operations.', operation);
   }
 }
 
@@ -11356,10 +11638,8 @@ function coerceValue(value, type, blameNode, path$$1) {
       }
     }
 
-    var _arr = Object.keys(value);
-
-    for (var _i = 0; _i < _arr.length; _i++) {
-      var fieldName = _arr[_i];
+    for (var _i = 0, _Object$keys = Object.keys(value); _i < _Object$keys.length; _i++) {
+      var fieldName = _Object$keys[_i];
 
       if (!fields[fieldName]) {
         var _suggestions = suggestionList(fieldName, Object.keys(fields));
@@ -11371,11 +11651,12 @@ function coerceValue(value, type, blameNode, path$$1) {
     }
 
     return _errors ? ofErrors(_errors) : ofValue(_coercedValue);
-  }
+  } // Not reachable. All possible input types have been considered.
+
   /* istanbul ignore next */
 
 
-  throw new Error("Unexpected type: ".concat(type, "."));
+  throw new Error("Unexpected input type: \"".concat(inspect(type), "\"."));
 }
 
 function ofValue(value) {
@@ -11423,7 +11704,7 @@ function printPath(path$$1) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11598,11 +11879,12 @@ function valueFromAST(valueNode, type, variables) {
     }
 
     return result;
-  }
+  } // Not reachable. All possible input types have been considered.
+
   /* istanbul ignore next */
 
 
-  throw new Error("Unknown type: ".concat(type, "."));
+  throw new Error("Unexpected input type: \"".concat(inspect(type), "\"."));
 } // Returns true if the provided valueNode is a variable which is not defined
 // in the set of variables.
 
@@ -11611,7 +11893,7 @@ function isMissingVariable(valueNode, variables) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11640,7 +11922,7 @@ function getVariableValues(schema, varDefNodes, inputs) {
     if (!isInputType(varType)) {
       // Must use input types for variables. This should be caught during
       // validation, however is checked again here for safety.
-      errors.push(new GraphQLError("Variable \"$".concat(varName, "\" expected value of type ") + "\"".concat(print(varDefNode.type), "\" which cannot be used as an input type."), [varDefNode.type]));
+      errors.push(new GraphQLError("Variable \"$".concat(varName, "\" expected value of type ") + "\"".concat(print(varDefNode.type), "\" which cannot be used as an input type."), varDefNode.type));
     } else {
       var hasValue = hasOwnProperty(inputs, varName);
       var value = hasValue ? inputs[varName] : undefined;
@@ -11652,7 +11934,7 @@ function getVariableValues(schema, varDefNodes, inputs) {
       } else if ((!hasValue || value === null) && isNonNullType(varType)) {
         // If no value or a nullish value was provided to a variable with a
         // non-null type (required), produce an error.
-        errors.push(new GraphQLError(hasValue ? "Variable \"$".concat(varName, "\" of non-null type ") + "\"".concat(inspect(varType), "\" must not be null.") : "Variable \"$".concat(varName, "\" of required type ") + "\"".concat(inspect(varType), "\" was not provided."), [varDefNode]));
+        errors.push(new GraphQLError(hasValue ? "Variable \"$".concat(varName, "\" of non-null type ") + "\"".concat(inspect(varType), "\" must not be null.") : "Variable \"$".concat(varName, "\" of required type ") + "\"".concat(inspect(varType), "\" was not provided."), varDefNode));
       } else if (hasValue) {
         if (value === null) {
           // If the explicit value `null` was provided, an entry in the coerced
@@ -11753,12 +12035,12 @@ function getArgumentValues(def, node, variableValues) {
       // If no argument or a null value was provided to an argument with a
       // non-null type (required), produce a field error.
       if (isNull) {
-        throw new GraphQLError("Argument \"".concat(name, "\" of non-null type \"").concat(inspect(argType), "\" ") + 'must not be null.', [argumentNode.value]);
+        throw new GraphQLError("Argument \"".concat(name, "\" of non-null type \"").concat(inspect(argType), "\" ") + 'must not be null.', argumentNode.value);
       } else if (argumentNode && argumentNode.value.kind === Kind.VARIABLE) {
         var _variableName = argumentNode.value.name.value;
-        throw new GraphQLError("Argument \"".concat(name, "\" of required type \"").concat(inspect(argType), "\" ") + "was provided the variable \"$".concat(_variableName, "\" ") + 'which was not provided a runtime value.', [argumentNode.value]);
+        throw new GraphQLError("Argument \"".concat(name, "\" of required type \"").concat(inspect(argType), "\" ") + "was provided the variable \"$".concat(_variableName, "\" ") + 'which was not provided a runtime value.', argumentNode.value);
       } else {
-        throw new GraphQLError("Argument \"".concat(name, "\" of required type \"").concat(inspect(argType), "\" ") + 'was not provided.', [node]);
+        throw new GraphQLError("Argument \"".concat(name, "\" of required type \"").concat(inspect(argType), "\" ") + 'was not provided.', node);
       }
     } else if (hasValue) {
       if (argumentNode.value.kind === Kind.NULL) {
@@ -11780,7 +12062,7 @@ function getArgumentValues(def, node, variableValues) {
           // Note: ValuesOfCorrectType validation should catch this before
           // execution. This is a runtime check to ensure execution does not
           // continue with an invalid argument value.
-          throw new GraphQLError("Argument \"".concat(name, "\" has invalid value ").concat(print(valueNode), "."), [argumentNode.value]);
+          throw new GraphQLError("Argument \"".concat(name, "\" has invalid value ").concat(print(valueNode), "."), argumentNode.value);
         }
 
         coercedValues[name] = coercedValue;
@@ -11829,18 +12111,18 @@ function _typeof$7(obj) {
 
   return _typeof$7(obj);
 }
-function execute(argsOrSchema, document, rootValue, contextValue, variableValues, operationName, fieldResolver) {
+function execute(argsOrSchema, document, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver) {
   /* eslint-enable no-redeclare */
   // Extract arguments from object args if provided.
-  return arguments.length === 1 ? executeImpl(argsOrSchema.schema, argsOrSchema.document, argsOrSchema.rootValue, argsOrSchema.contextValue, argsOrSchema.variableValues, argsOrSchema.operationName, argsOrSchema.fieldResolver) : executeImpl(argsOrSchema, document, rootValue, contextValue, variableValues, operationName, fieldResolver);
+  return arguments.length === 1 ? executeImpl(argsOrSchema.schema, argsOrSchema.document, argsOrSchema.rootValue, argsOrSchema.contextValue, argsOrSchema.variableValues, argsOrSchema.operationName, argsOrSchema.fieldResolver, argsOrSchema.typeResolver) : executeImpl(argsOrSchema, document, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver);
 }
 
-function executeImpl(schema, document, rootValue, contextValue, variableValues, operationName, fieldResolver) {
+function executeImpl(schema, document, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver) {
   // If arguments are missing or incorrect, throw an error.
   assertValidExecutionArguments(schema, document, variableValues); // If a valid execution context cannot be created due to incorrect arguments,
   // a "Response" with only errors is returned.
 
-  var exeContext = buildExecutionContext(schema, document, rootValue, contextValue, variableValues, operationName, fieldResolver); // Return early errors if execution context failed.
+  var exeContext = buildExecutionContext(schema, document, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver); // Return early errors if execution context failed.
 
   if (Array.isArray(exeContext)) {
     return {
@@ -11925,7 +12207,7 @@ function assertValidExecutionArguments(schema, document, rawVariableValues) {
  * Throws a GraphQLError if a valid execution context cannot be created.
  */
 
-function buildExecutionContext(schema, document, rootValue, contextValue, rawVariableValues, operationName, fieldResolver) {
+function buildExecutionContext(schema, document, rootValue, contextValue, rawVariableValues, operationName, fieldResolver, typeResolver) {
   var errors = [];
   var operation;
   var hasMultipleAssumedOperations = false;
@@ -11986,6 +12268,7 @@ function buildExecutionContext(schema, document, rootValue, contextValue, rawVar
     operation: operation,
     variableValues: variableValues,
     fieldResolver: fieldResolver || defaultFieldResolver,
+    typeResolver: typeResolver || defaultTypeResolver,
     errors: errors
   };
 }
@@ -12252,7 +12535,11 @@ function resolveFieldValueOrError(exeContext, fieldDef, fieldNodes, resolveFn, s
 // consistent Error interface.
 
 function asErrorInstance(error) {
-  return error instanceof Error ? error : new Error(error || undefined);
+  if (error instanceof Error) {
+    return error;
+  }
+
+  return new Error('Unexpected error value: ' + inspect(error));
 } // This is a small wrapper around completeValue which detects and logs errors
 // in the execution context.
 
@@ -12367,7 +12654,7 @@ function completeValue(exeContext, returnType, fieldNodes, info, path$$1, result
   /* istanbul ignore next */
 
 
-  throw new Error("Cannot complete value of unexpected type \"".concat(inspect(returnType), "\"."));
+  throw new Error("Cannot complete value of unexpected output type: \"".concat(inspect(returnType), "\"."));
 }
 /**
  * Complete a list value by completing each item in the list with the
@@ -12419,7 +12706,9 @@ function completeLeafValue(returnType, result) {
 
 
 function completeAbstractValue(exeContext, returnType, fieldNodes, info, path$$1, result) {
-  var runtimeType = returnType.resolveType ? returnType.resolveType(result, exeContext.contextValue, info) : defaultResolveTypeFn(result, exeContext.contextValue, info, returnType);
+  var resolveTypeFn = returnType.resolveType || exeContext.typeResolver;
+  var contextValue = exeContext.contextValue;
+  var runtimeType = resolveTypeFn(result, contextValue, info, returnType);
 
   if (isPromise(runtimeType)) {
     return runtimeType.then(function (resolvedRuntimeType) {
@@ -12517,7 +12806,7 @@ function _collectSubfields(exeContext, returnType, fieldNodes) {
  */
 
 
-function defaultResolveTypeFn(value, contextValue, info, abstractType) {
+var defaultTypeResolver = function defaultTypeResolver(value, contextValue, info, abstractType) {
   // First, look for `__typename`.
   if (value !== null && _typeof$7(value) === 'object' && typeof value.__typename === 'string') {
     return value.__typename;
@@ -12550,14 +12839,13 @@ function defaultResolveTypeFn(value, contextValue, info, abstractType) {
       }
     });
   }
-}
+};
 /**
  * If a resolve function is not given, then a default resolve behavior is used
  * which takes the property of the source object of the same name as the field
  * and returns it as the result, or if it's a function, returns the result
  * of calling that function while passing along args and context value.
  */
-
 
 var defaultFieldResolver = function defaultFieldResolver(source, args, contextValue, info) {
   // ensure source is a value for which property access is acceptable.
@@ -12594,25 +12882,25 @@ function getFieldDef$1(schema, parentType, fieldName) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
  * 
  */
-function graphql(argsOrSchema, source, rootValue, contextValue, variableValues, operationName, fieldResolver) {
+function graphql(argsOrSchema, source, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver) {
   var _arguments = arguments;
   /* eslint-enable no-redeclare */
   // Always return a Promise for a consistent API.
 
   return new Promise(function (resolve) {
     return resolve( // Extract arguments from object args if provided.
-    _arguments.length === 1 ? graphqlImpl(argsOrSchema.schema, argsOrSchema.source, argsOrSchema.rootValue, argsOrSchema.contextValue, argsOrSchema.variableValues, argsOrSchema.operationName, argsOrSchema.fieldResolver) : graphqlImpl(argsOrSchema, source, rootValue, contextValue, variableValues, operationName, fieldResolver));
+    _arguments.length === 1 ? graphqlImpl(argsOrSchema.schema, argsOrSchema.source, argsOrSchema.rootValue, argsOrSchema.contextValue, argsOrSchema.variableValues, argsOrSchema.operationName, argsOrSchema.fieldResolver, argsOrSchema.typeResolver) : graphqlImpl(argsOrSchema, source, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver));
   });
 }
 
-function graphqlImpl(schema, source, rootValue, contextValue, variableValues, operationName, fieldResolver) {
+function graphqlImpl(schema, source, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver) {
   // Validate Schema
   var schemaValidationErrors = validateSchema(schema);
 
@@ -12643,11 +12931,11 @@ function graphqlImpl(schema, source, rootValue, contextValue, variableValues, op
   } // Execute
 
 
-  return execute(schema, document, rootValue, contextValue, variableValues, operationName, fieldResolver);
+  return execute(schema, document, rootValue, contextValue, variableValues, operationName, fieldResolver, typeResolver);
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12656,7 +12944,7 @@ function graphqlImpl(schema, source, rootValue, contextValue, variableValues, op
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12665,7 +12953,7 @@ function graphqlImpl(schema, source, rootValue, contextValue, variableValues, op
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12674,7 +12962,7 @@ function graphqlImpl(schema, source, rootValue, contextValue, variableValues, op
  */
 
 /**
- * Copyright (c) 2017-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12683,7 +12971,7 @@ function graphqlImpl(schema, source, rootValue, contextValue, variableValues, op
  */
 
 /**
- * Copyright (c) 2017-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12692,7 +12980,7 @@ function graphqlImpl(schema, source, rootValue, contextValue, variableValues, op
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12701,7 +12989,7 @@ function graphqlImpl(schema, source, rootValue, contextValue, variableValues, op
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12721,7 +13009,7 @@ function getIntrospectionQuery(options) {
 var introspectionQuery = getIntrospectionQuery();
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12730,7 +13018,7 @@ var introspectionQuery = getIntrospectionQuery();
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12739,7 +13027,7 @@ var introspectionQuery = getIntrospectionQuery();
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12748,7 +13036,7 @@ var introspectionQuery = getIntrospectionQuery();
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12780,7 +13068,7 @@ function buildASTSchema(documentAST, options) {
   }
 
   var schemaDef;
-  var nodeMap = Object.create(null);
+  var typeDefs = [];
   var directiveDefs = [];
   var _iteratorNormalCompletion = true;
   var _didIteratorError = false;
@@ -12793,7 +13081,7 @@ function buildASTSchema(documentAST, options) {
       if (def.kind === Kind.SCHEMA_DEFINITION) {
         schemaDef = def;
       } else if (isTypeDefinitionNode(def)) {
-        nodeMap[def.name.value] = def;
+        typeDefs.push(def);
       } else if (def.kind === Kind.DIRECTIVE_DEFINITION) {
         directiveDefs.push(def);
       }
@@ -12813,16 +13101,21 @@ function buildASTSchema(documentAST, options) {
     }
   }
 
-  var operationTypes = schemaDef ? getOperationTypes(schemaDef) : {
-    query: nodeMap.Query,
-    mutation: nodeMap.Mutation,
-    subscription: nodeMap.Subscription
-  };
-  var definitionBuilder = new ASTDefinitionBuilder(nodeMap, options, function (typeName) {
-    throw new Error("Type \"".concat(typeName, "\" not found in document."));
+  var astBuilder = new ASTDefinitionBuilder(options, function (typeName) {
+    var type = typeMap[typeName];
+    !type ? invariant(0, "Type \"".concat(typeName, "\" not found in document.")) : void 0;
+    return type;
   });
+  var typeMap = keyByNameNode(typeDefs, function (node) {
+    return astBuilder.buildType(node);
+  });
+  var operationTypes = schemaDef ? getOperationTypes(schemaDef) : {
+    query: 'Query',
+    mutation: 'Mutation',
+    subscription: 'Subscription'
+  };
   var directives = directiveDefs.map(function (def) {
-    return definitionBuilder.buildDirective(def);
+    return astBuilder.buildDirective(def);
   }); // If specified directives were not explicitly declared, add them.
 
   if (!directives.some(function (directive) {
@@ -12841,18 +13134,16 @@ function buildASTSchema(documentAST, options) {
     return directive.name === 'deprecated';
   })) {
     directives.push(GraphQLDeprecatedDirective);
-  } // Note: While this could make early assertions to get the correctly
-  // typed values below, that would throw immediately while type system
-  // validation with validateSchema() will produce more actionable results.
-
+  }
 
   return new GraphQLSchema({
-    query: operationTypes.query ? definitionBuilder.buildType(operationTypes.query) : null,
-    mutation: operationTypes.mutation ? definitionBuilder.buildType(operationTypes.mutation) : null,
-    subscription: operationTypes.subscription ? definitionBuilder.buildType(operationTypes.subscription) : null,
-    types: objectValues(nodeMap).map(function (node) {
-      return definitionBuilder.buildType(node);
-    }),
+    // Note: While this could make early assertions to get the correctly
+    // typed values below, that would throw immediately while type system
+    // validation with validateSchema() will produce more actionable results.
+    query: operationTypes.query ? typeMap[operationTypes.query] : null,
+    mutation: operationTypes.mutation ? typeMap[operationTypes.mutation] : null,
+    subscription: operationTypes.subscription ? typeMap[operationTypes.subscription] : null,
+    types: objectValues(typeMap),
     directives: directives,
     astNode: schemaDef,
     assumeValid: options && options.assumeValid,
@@ -12868,7 +13159,7 @@ function buildASTSchema(documentAST, options) {
     try {
       for (var _iterator2 = schema.operationTypes[Symbol.iterator](), _step2; !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
         var operationType = _step2.value;
-        opTypes[operationType.operation] = operationType.type;
+        opTypes[operationType.operation] = operationType.type.name.value;
       }
     } catch (err) {
       _didIteratorError2 = true;
@@ -12888,47 +13179,34 @@ function buildASTSchema(documentAST, options) {
     return opTypes;
   }
 }
+var stdTypeMap = keyMap(specifiedScalarTypes.concat(introspectionTypes), function (type) {
+  return type.name;
+});
 var ASTDefinitionBuilder =
 /*#__PURE__*/
 function () {
-  function ASTDefinitionBuilder(typeDefinitionsMap, options, resolveType) {
-    this._typeDefinitionsMap = typeDefinitionsMap;
+  function ASTDefinitionBuilder(options, resolveType) {
     this._options = options;
-    this._resolveType = resolveType; // Initialize to the GraphQL built in scalars and introspection types.
-
-    this._cache = keyMap(specifiedScalarTypes.concat(introspectionTypes), function (type) {
-      return type.name;
-    });
+    this._resolveType = resolveType;
   }
 
   var _proto = ASTDefinitionBuilder.prototype;
 
-  _proto.buildType = function buildType(node) {
-    var typeName = node.name.value;
-
-    if (!this._cache[typeName]) {
-      if (node.kind === Kind.NAMED_TYPE) {
-        var defNode = this._typeDefinitionsMap[typeName];
-        this._cache[typeName] = defNode ? this._makeSchemaDef(defNode) : this._resolveType(node.name.value);
-      } else {
-        this._cache[typeName] = this._makeSchemaDef(node);
-      }
-    }
-
-    return this._cache[typeName];
+  _proto.getNamedType = function getNamedType$$1(node) {
+    var name = node.name.value;
+    return stdTypeMap[name] || this._resolveType(name);
   };
 
-  _proto._buildWrappedType = function _buildWrappedType(typeNode) {
-    if (typeNode.kind === Kind.LIST_TYPE) {
-      return GraphQLList(this._buildWrappedType(typeNode.type));
+  _proto.getWrappedType = function getWrappedType(node) {
+    if (node.kind === Kind.LIST_TYPE) {
+      return new GraphQLList(this.getWrappedType(node.type));
     }
 
-    if (typeNode.kind === Kind.NON_NULL_TYPE) {
-      return GraphQLNonNull( // Note: GraphQLNonNull constructor validates this type
-      this._buildWrappedType(typeNode.type));
+    if (node.kind === Kind.NON_NULL_TYPE) {
+      return new GraphQLNonNull(this.getWrappedType(node.type));
     }
 
-    return this.buildType(typeNode);
+    return this.getNamedType(node);
   };
 
   _proto.buildDirective = function buildDirective(directive) {
@@ -12956,7 +13234,7 @@ function () {
       // Note: While this could make assertions to get the correctly typed
       // value, that would throw immediately while type system validation
       // with validateSchema() will produce more actionable results.
-      type: this._buildWrappedType(field.type),
+      type: this.getWrappedType(field.type),
       description: getDescription(field, this._options),
       args: keyByNameNode(field.arguments || [], function (arg) {
         return _this2.buildArg(arg);
@@ -12969,8 +13247,7 @@ function () {
   _proto.buildArg = function buildArg(value) {
     // Note: While this could make assertions to get the correctly typed
     // value, that would throw immediately while type system validation
-    var type = this._buildWrappedType(value.type);
-
+    var type = this.getWrappedType(value.type);
     return {
       type: type,
       description: getDescription(value, this._options),
@@ -12982,8 +13259,7 @@ function () {
   _proto.buildInputField = function buildInputField(value) {
     // Note: While this could make assertions to get the correctly typed
     // value, that would throw immediately while type system validation
-    var type = this._buildWrappedType(value.type);
-
+    var type = this.getWrappedType(value.type);
     return {
       type: type,
       description: getDescription(value, this._options),
@@ -13000,7 +13276,13 @@ function () {
     };
   };
 
-  _proto._makeSchemaDef = function _makeSchemaDef(astNode) {
+  _proto.buildType = function buildType(astNode) {
+    var name = astNode.name.value;
+
+    if (stdTypeMap[name]) {
+      return stdTypeMap[name];
+    }
+
     switch (astNode.kind) {
       case Kind.OBJECT_TYPE_DEFINITION:
         return this._makeTypeDef(astNode);
@@ -13019,10 +13301,12 @@ function () {
 
       case Kind.INPUT_OBJECT_TYPE_DEFINITION:
         return this._makeInputObjectDef(astNode);
+    } // Not reachable. All possible type definition nodes have been considered.
 
-      default:
-        throw new Error("Type kind \"".concat(astNode.kind, "\" not supported."));
-    }
+    /* istanbul ignore next */
+
+
+    throw new Error("Unexpected type definition node: \"".concat(inspect(astNode), "\"."));
   };
 
   _proto._makeTypeDef = function _makeTypeDef(astNode) {
@@ -13035,7 +13319,7 @@ function () {
 
     var interfaces = interfaceNodes && interfaceNodes.length > 0 ? function () {
       return interfaceNodes.map(function (ref) {
-        return _this3.buildType(ref);
+        return _this3.getNamedType(ref);
       });
     } : [];
     var fields = fieldNodes && fieldNodes.length > 0 ? function () {
@@ -13092,7 +13376,7 @@ function () {
 
     var types = typeNodes && typeNodes.length > 0 ? function () {
       return typeNodes.map(function (ref) {
-        return _this6.buildType(ref);
+        return _this6.getNamedType(ref);
       });
     } : [];
     return new GraphQLUnionType({
@@ -13170,7 +13454,7 @@ function getDescription(node, options) {
     var rawValue = getLeadingCommentBlock(node);
 
     if (rawValue !== undefined) {
-      return blockStringValue('\n' + rawValue);
+      return dedentBlockStringValue('\n' + rawValue);
     }
   }
 }
@@ -13204,7 +13488,7 @@ function buildSchema(source, options) {
 }
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13213,7 +13497,7 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13222,7 +13506,7 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13231,7 +13515,7 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13240,7 +13524,7 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13249,7 +13533,7 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2016-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13258,7 +13542,7 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13267,7 +13551,7 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13276,7 +13560,16 @@ function buildSchema(source, options) {
  */
 
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * 
+ */
+
+/**
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13298,11 +13591,11 @@ var documents = [{
   }
 }, {
   key: 'doc02',
-  name: 'Example',
-  description: 'An example Markdown doc to use to double check formatting!',
+  name: 'AutoGraphQL',
+  description: 'Announcing the AutoGraphQL Framework',
   status: 'published',
-  internalPath: 'data/about/docs.md',
-  path: 'pitch-01',
+  internalPath: 'data/about/AutoGraphQL.md',
+  path: 'example-01',
   section: {
     key: 'sec02',
     name: 'About',
@@ -13312,9 +13605,9 @@ var documents = [{
   key: 'doc03',
   name: 'Daring Markdown Example',
   description: 'An example Markdown doc from Daring Fireball',
-  status: 'published',
+  status: 'draft',
   internalPath: 'data/about/daring.md',
-  path: 'pitch-02',
+  path: 'example-02',
   section: {
     key: 'sec02',
     name: 'About',
@@ -13324,9 +13617,9 @@ var documents = [{
   key: 'doc04',
   name: 'Another Daring Markdown Example',
   description: 'Another example Markdown doc from Daring Fireball',
-  status: 'published',
+  status: 'draft',
   internalPath: 'data/about/daring_again.md',
-  path: 'pitch-03',
+  path: 'example-03',
   section: {
     key: 'sec02',
     name: 'About',
@@ -13455,14 +13748,14 @@ var documentListBySection = (async ({
   }
 });
 
-var commonjsGlobal = typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
+var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
 function commonjsRequire () {
 	throw new Error('Dynamic requires are not currently supported by rollup-plugin-commonjs');
 }
 
 function unwrapExports (x) {
-	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x.default : x;
+	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
 }
 
 function createCommonjsModule(fn, module) {
@@ -14725,6 +15018,10 @@ var PATTERN_FLOW_INDICATORS = /[,\[\]\{\}]/;
 var PATTERN_TAG_HANDLE = /^(?:!|!!|![a-z\-]+!)$/i;
 var PATTERN_TAG_URI = /^(?:!|[^,\[\]\{\}])(?:%[0-9a-f]{2}|[0-9a-z\-#;\/\?:@&=\+\$,_\.!~\*'\(\)\[\]])*$/i;
 
+function _class(obj) {
+  return Object.prototype.toString.call(obj);
+}
+
 function is_EOL(c) {
   return c === 0x0A
   /* LF */
@@ -15028,7 +15325,31 @@ function mergeMappings(state, destination, source, overridableKeys) {
 }
 
 function storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, valueNode, startLine, startPos) {
-  var index, quantity;
+  var index, quantity; // The output is a plain object here, so keys can only be strings.
+  // We need to convert keyNode to a string, but doing so can hang the process
+  // (deeply nested arrays that explode exponentially using aliases).
+
+  if (Array.isArray(keyNode)) {
+    keyNode = Array.prototype.slice.call(keyNode);
+
+    for (index = 0, quantity = keyNode.length; index < quantity; index += 1) {
+      if (Array.isArray(keyNode[index])) {
+        throwError(state, 'nested arrays are not supported inside keys');
+      }
+
+      if (typeof keyNode === 'object' && _class(keyNode[index]) === '[object Object]') {
+        keyNode[index] = '[object Object]';
+      }
+    }
+  } // Avoid code execution in load() via toString property
+  // (still use its own toString for arrays, timestamps,
+  // and whatever user schema extensions happen to have @@toStringTag)
+
+
+  if (typeof keyNode === 'object' && _class(keyNode) === '[object Object]') {
+    keyNode = '[object Object]';
+  }
+
   keyNode = String(keyNode);
 
   if (_result === null) {
@@ -17124,7 +17445,7 @@ function writeNode(state, level, object, block, compact, iskey) {
         }
       }
     } else if (type === '[object Array]') {
-      var arrayLevel = state.noArrayIndent ? level - 1 : level;
+      var arrayLevel = state.noArrayIndent && level > 0 ? level - 1 : level;
 
       if (block && state.dump.length !== 0) {
         writeBlockSequence(state, arrayLevel, state.dump, compact);

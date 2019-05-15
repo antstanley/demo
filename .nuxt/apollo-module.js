@@ -27,18 +27,24 @@ export default (ctx, inject) => {
         } else {
           token = jsCookie.get(defaultTokenName)
         }
-        return token ? AUTH_TYPE + token : ''
+        return token && defaultClientConfig.validateToken(token) ? AUTH_TYPE + token : ''
       }
 
-      let defaultClientConfig;
+      let defaultClientConfig
 
         defaultClientConfig = {
   "httpEndpoint": "http://localhost:7000"
 }
 
+      const defaultValidateToken = () => true
+
+      if (!defaultClientConfig.validateToken) {
+        defaultClientConfig.validateToken = defaultValidateToken
+      }
+
       const defaultCache = defaultClientConfig.cache
         ? defaultClientConfig.cache
-        : new InMemoryCache()
+        : new InMemoryCache(defaultClientConfig.inMemoryCacheOptions ? defaultClientConfig.inMemoryCacheOptions: null)
 
       if (!process.server) {
         defaultCache.restore(window.__NUXT__ ? window.__NUXT__.apollo.defaultClient : null)
@@ -68,19 +74,11 @@ export default (ctx, inject) => {
   const apolloProvider = new VueApollo(vueApolloOptions)
   // Allow access to the provider in the context
   app.apolloProvider = apolloProvider
-  // Install the provider into the app
-  app.provide = apolloProvider.provide()
 
   if (process.server) {
-    beforeNuxtRender(async ({ Components, nuxtState }) => {
-      Components.forEach((Component) => {
-        // Fix https://github.com/nuxt-community/apollo-module/issues/19
-        if (Component.options && Component.options.apollo && Component.options.apollo.$init) {
-          delete Component.options.apollo.$init
-        }
-      })
-      await apolloProvider.prefetchAll(ctx, Components)
-      nuxtState.apollo = apolloProvider.getStates()
+    const ApolloSSR = require('vue-apollo/ssr')
+    beforeNuxtRender(({ nuxtState }) => {
+      nuxtState.apollo = ApolloSSR.getStates(apolloProvider)
     })
   }
 

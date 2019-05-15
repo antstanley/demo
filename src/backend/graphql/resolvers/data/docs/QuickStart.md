@@ -30,7 +30,7 @@ The cli only accepts one argument, `-c` which specifies the location of the conf
 
 The configuration file can the JSON or YAML. Below is a sample conifguration file
 
-```
+```json
 {
     "name": "graphql",
     "root": "./",
@@ -40,21 +40,24 @@ The configuration file can the JSON or YAML. Below is a sample conifguration fil
         "package.json",
         "data"
     ],
-    "providers": [
+    "functions": [
         {
-            "name": "aws"
+            "provider": "aws"
         },
         {
-            "name": "now"
+            "provider": "now"
         },
         {
-            "name": "ibm"
+            "provider": "ibm"
         },
         {
-            "name": "gcp"
+            "provider": "azure"
         },
         {
-            "name": "netlify",
+            "provider": "gcp"
+        },
+        {
+            "provider": "netlify",
             "dist": "./dist/netlify"
         }
     ],
@@ -92,7 +95,7 @@ This project is not complete, and has a long and extensive backlog. Current back
 
 - Complete Test suite
 - Complete deployment integration with Serverless Framework & Architect Framework (arc.codes)
-- Add Azure & Cloudflare as providers
+- Add Cloudflare as providers
 - Add file watching and automatic restart for dev mode
 - Detailed documentation and website
 

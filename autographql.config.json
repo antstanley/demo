@@ -1,16 +1,31 @@
 {
-    "name": "modDev",
+    "name": "demo",
     "schema": "./src/backend/graphql/schema/schema.gql",
     "resolvers": "./src/backend/graphql/resolvers",
     "external": "data",
-    "providers": [
+    "rollup": {
+        "resolve": {
+            "module": false
+        },
+        "warning": [
+            "CIRCULAR_DEPENDENCY",
+            "UNRESOLVED_IMPORT"
+        ]
+    },
+    "functions": [
         {
-            "name": "netlify",
+            "provider": "netlify",
             "dist": "./dist/graphql"
         },
         {
-            "name": "gcp",
+            "provider": "gcp",
             "dist": "./dist/gcp"
+        },
+        {
+            "provider": "aws"
+        },
+        {
+            "provider": "ibm"
         }
     ],
     "dev": {

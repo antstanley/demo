@@ -11,14 +11,15 @@ const state = () => {
         response_type: 'id_token',
         state: '',
         nonce: '',
-        logoutURL: 'https://senzo.eu.auth0.com/v2/logout?returnTo=http%3A%2F%2Flocalhost%3A3000&client_id=MbdCI8GejKlIO4QB0Jv8DQaSmr23wxpj'
+        logoutURL:
+          'https://senzo.eu.auth0.com/v2/logout?returnTo=http%3A%2F%2Flocalhost%3A3000&client_id=MbdCI8GejKlIO4QB0Jv8DQaSmr23wxpj'
       },
       nav: [
         { key: '2', path: '/about', name: 'About' },
         { key: '3', path: '/docs', name: 'Documentation' },
         { key: '4', path: '/road', name: 'Roadmap' }
       ],
-      token: ''
+      token: 'hello'
     }
   })
 }
