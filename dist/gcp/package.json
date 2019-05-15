@@ -1,0 +1,6 @@
+{
+    "name": "autographql",
+    "dependencies": {
+        "yaml-front-matter": "^4.0.0"
+    }
+}

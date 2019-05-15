@@ -16,6 +16,14 @@
         {
             "provider": "netlify",
             "dist": "./dist/graphql"
+        },
+        {
+            "provider": "gcp",
+            "dist": "./dist/gcp"
+        },
+        {
+            "provider": "aws",
+            "dist": "./dist/aws"
         }
     ],
     "dev": {

@@ -33,7 +33,7 @@ export default (ctx, inject) => {
       let defaultClientConfig
 
         defaultClientConfig = {
-  "httpEndpoint": "https://fervent-borg-084880.netlify.com/.netlify/functions/index"
+  "httpEndpoint": "https://us-central1-autograph-221122.cloudfunctions.net/demo-api"
 }
 
       const defaultValidateToken = () => true

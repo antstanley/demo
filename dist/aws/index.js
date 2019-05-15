@@ -12060,10 +12060,9 @@ var resolvers = {
 
 let gqlSchema;
 
-const handler = async (event, context, callback) => {
+const handler = async event => {
   try {
-    const body = event.body;
-    console.log(event);
+    const body = JSON.parse(event.body);
     const gqlSDL = `scalar JSON
 
 type Document {
@@ -12099,47 +12098,44 @@ type Query {
     documentByPath(path: String): Document
 }
  `;
-    const bodyJSON = JSON.parse(body);
-    console.log(bodyJSON);
 
-    if (!bodyJSON.query) {
+    if (!body.query) {
       const response = {
         statusCode: 400,
         body: JSON.stringify('No query specified')
       };
-      callback(null, response);
+      return response;
     } else {
-      if (!gqlSchema) {
-        console.log('Init Schema');
-        gqlSchema = buildSchema(gqlSDL);
-      } // const bodyJSON = JSON.parse(body)
-      // console.log(bodyJSON)
-
-
+      if (!gqlSchema) gqlSchema = buildSchema(gqlSDL);
       const {
         query,
         variables
-      } = bodyJSON;
+      } = body;
       const queryDoc = parse(query);
 
       if (queryDoc) {
-        const gqlContext = event.header || null;
-        const gqlResponse = await execute(gqlSchema, queryDoc, resolvers, gqlContext, variables);
+        const context = event.header || null;
+        const responseBody = JSON.stringify((await execute(gqlSchema, queryDoc, resolvers, context, variables)));
         const response = {
           statusCode: 200,
-          body: JSON.stringify(gqlResponse)
+          body: responseBody
         };
-        callback(null, response);
+        return response;
       } else {
         const response = {
           statusCode: 400,
           body: `GraphQL query not valid: ${query}`
         };
-        callback(null, response);
+        return response;
       }
     }
   } catch (error) {
     console.log(error);
+    const response = {
+      statusCode: 400,
+      body: `A server side error has occurred`
+    };
+    return response;
   }
 };
 
